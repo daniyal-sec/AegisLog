@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-A Python-based Security Log Investigation & Detection Engine for Blue Teamers, SOC Analysts, and Cybersecurity Learners.
+A Python-based Security Log Investigation & Detection Engine built for Blue Teamers, SOC Analysts, DFIR Practitioners, and Cybersecurity Learners.
 </p>
 
 <p align="center">
@@ -31,86 +31,97 @@ Among these events may be:
 
 - Failed login attempts
 - Brute-force attacks
-- Credential stuffing
+- Username enumeration
+- Password spraying
 - Unauthorized access attempts
 - Suspicious successful logins
 
 Finding these manually is time-consuming and error-prone.
 
-**AegisLog** automates this investigation process by analyzing authentication logs, detecting suspicious activity, correlating related events, and generating investigation-ready reports.
+**AegisLog** automates the investigation process by parsing authentication logs, detecting suspicious activity, correlating related events, and generating investigation-ready findings.
 
-The goal is not just to parse logs—but to transform raw authentication events into meaningful security intelligence.
+The goal is not simply to parse logs—but to transform raw authentication events into meaningful security intelligence.
 
 ---
 
 # 🚀 Why AegisLog?
 
-After completing **Nexorium Pulse**, a multithreaded TCP port scanner, I wanted to move from offensive security fundamentals toward **Blue Team operations**.
+After completing **Nexorium Pulse**, a multithreaded TCP port scanner, I wanted to move beyond offensive security fundamentals into **Blue Team engineering**.
 
-AegisLog is the second major project in my cybersecurity portfolio and focuses on one of the most important skills for SOC Analysts:
+AegisLog is the second major project in my cybersecurity portfolio and focuses on practical SOC analyst skills:
 
 - Authentication Log Analysis
 - Detection Engineering
 - Event Correlation
 - Security Reporting
+- Threat Investigation
 
-Every feature is being documented from planning to implementation to demonstrate professional software engineering practices.
+Every feature is designed with clean architecture, modular development, and detailed documentation to simulate professional software engineering practices.
 
 ---
 
 # ✨ Current Features
 
-- Authentication Log Parsing
-- Log Validation
-- Structured Event Processing
-- Investigation Report Generation
-- Cross-platform Support
-- Modular Python Architecture
-- Enterprise-inspired Documentation
+- ✅ Parse Linux SSH authentication logs
+- ✅ Parse complete authentication log files
+- ✅ Convert raw logs into structured `AuthEvent` objects
+- ✅ SSH Brute Force Detection
+- ✅ Username Enumeration Detection
+- ✅ Modular Detection Engine
+- ✅ ThreatFinding Data Model
+- ✅ Cross-platform (Windows & Linux)
+- ✅ Enterprise-inspired Project Architecture
+- ✅ Professional Documentation
 
 ---
 
-# 🚧 Planned Detection Capabilities
+# 🚧 Detection Roadmap
 
-- Failed Login Detection
-- Brute Force Detection
-- Password Spray Detection
+## ✅ Implemented
+
+- SSH Brute Force Detection
+- Username Enumeration Detection
+
+## 🚧 In Progress
+
 - Successful Login After Multiple Failures
-- Account Lock Detection
+- Password Spray Detection
+- Root Login Detection
+- Suspicious IP Detection
 - Severity Classification
 - Event Correlation
-- Suspicious IP Detection
 - Timeline Generation
 - HTML Investigation Reports
+- JSON Reports
 - Desktop GUI
 
 ---
 
-# 🏗 Architecture
+# 🏗 System Architecture
 
 ```
 Authentication Logs
         │
         ▼
-   Log Parser
+     parser.py
         │
         ▼
- Event Validation
+   AuthEvent Model
         │
         ▼
- Detection Engine
+    detector.py
         │
         ▼
- Event Correlation
-        │
-        ▼
- Severity Engine
+ ThreatFinding Model
         │
         ▼
  Report Generator
         │
         ▼
  Investigation Report
+        │
+        ▼
+ Desktop GUI
 ```
 
 Detailed documentation is available inside:
@@ -134,23 +145,26 @@ AegisLog
 ├── docs/
 │   ├── ARCHITECTURE.md
 │   ├── ROADMAP.md
-│   └── LOG_FORMAT.md
+│   ├── LOG_FORMAT.md
+│   └── DETECTION_ENGINE.md
 │
 ├── reports/
 │
 ├── sample_logs/
+│   └── linux_auth.log
 │
 ├── screenshots/
 │
 ├── src/
+│   ├── main.py
 │   ├── parser.py
-│   ├── models.py
 │   ├── detector.py
+│   ├── models.py
 │   ├── report_generator.py
-│   ├── utils.py
-│   └── main.py
+│   └── utils.py
 │
 ├── README.md
+├── LICENSE
 └── requirements.txt
 ```
 
@@ -158,32 +172,32 @@ AegisLog
 
 # 📸 Screenshots
 
-### Logo
+### Project Logo
 
 <p align="center">
 <img src="assets/logo/aegislog-logo.png" width="220">
 </p>
 
-### Application
+### Console Output
 
-GUI screenshots will be added as development progresses.
+Console screenshots and GUI previews will be added as development progresses.
 
 ---
 
 # 📚 Documentation
 
-Project documentation is maintained throughout development.
+Project documentation grows together with the codebase.
 
-Current documents include:
+Current documentation includes:
 
-- Architecture
-- Roadmap
-- Log Format
+- ✅ Architecture
+- ✅ Roadmap
+- ✅ Log Format
 
-Additional documentation will include:
+Upcoming documentation:
 
-- Detection Rules
-- Report Engine
+- Detection Engine
+- Report Generator
 - GUI Design
 - Testing Guide
 - Changelog
@@ -192,47 +206,48 @@ Additional documentation will include:
 
 # 🗺 Development Roadmap
 
-### Phase 1
+## Phase 1 ✅
 
-- Project Setup
-- Documentation
+- Repository Setup
 - Branding
+- Documentation
+- Project Architecture
 
-### Phase 2
+## Phase 2 🚧
 
-- Log Parsing
+- Authentication Log Parser
 - Event Models
 - Detection Engine
 
-### Phase 3
+## Phase 3
 
-- Report Generation
 - Event Correlation
-- HTML Reports
+- Report Generator
+- HTML & JSON Reports
 
-### Phase 4
+## Phase 4
 
 - Desktop GUI
-- Performance Improvements
+- Performance Optimization
 - Release v1.0
 
 ---
 
 # ⚙ Installation
 
-Clone the repository:
+Clone the repository
 
 ```bash
 git clone https://github.com/daniyal-sec/AegisLog.git
 ```
 
-Enter the project directory:
+Enter the project
 
 ```bash
 cd AegisLog
 ```
 
-Install dependencies:
+Install dependencies
 
 ```bash
 pip install -r requirements.txt
@@ -242,29 +257,47 @@ pip install -r requirements.txt
 
 # 🚀 Usage
 
-Development is currently in progress.
+Run AegisLog
 
-The first public release will support:
+```bash
+python src/main.py
+```
 
-- Authentication Log Parsing
-- Detection Engine
-- Investigation Reports
+Current output includes:
+
+- Parsed Authentication Events
+- SSH Brute Force Detection
+- Username Enumeration Detection
+
+Additional reporting capabilities are currently under development.
 
 ---
 
-# 🎯 Future Vision
+# 🎯 Long-Term Vision
 
-AegisLog is designed to evolve beyond a log parser.
+AegisLog is designed to evolve beyond a simple log parser.
 
-The long-term goal is to become a lightweight desktop investigation platform capable of assisting Blue Teamers and SOC Analysts during authentication log investigations.
+The objective is to become a lightweight Blue Team investigation platform capable of:
+
+- Authentication Log Analysis
+- Detection Engineering
+- Event Correlation
+- Threat Classification
+- Investigation Report Generation
+- Interactive Desktop Dashboard
 
 ---
 
 # 🤝 Contributing
 
-Suggestions, ideas, and constructive feedback are always welcome.
+Suggestions, improvements, and constructive feedback are always welcome.
 
-If you discover a bug or have an improvement in mind, feel free to open an Issue or submit a Pull Request.
+Feel free to:
+
+- Open an Issue
+- Submit a Pull Request
+- Suggest new detection rules
+- Improve documentation
 
 ---
 
@@ -276,8 +309,10 @@ This project is licensed under the MIT License.
 
 <p align="center">
 
-### Built with ❤️ for the Cybersecurity Community
+## Built for the Cybersecurity Community
 
-**Analyze • Detect • Correlate • Investigate**
+### Analyze • Detect • Correlate • Investigate
+
+⭐ If you find this project useful, consider giving it a star.
 
 </p>

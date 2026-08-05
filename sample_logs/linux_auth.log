@@ -1,0 +1,10 @@
+Aug 06 10:14:21 web-server sshd[1842]: Accepted password for danyyy from 192.168.1.15 port 52144 ssh2
+Aug 06 10:16:03 web-server sshd[1901]: Failed password for root from 203.0.113.45 port 44321 ssh2
+Aug 06 10:16:08 web-server sshd[1904]: Failed password for root from 203.0.113.45 port 44325 ssh2
+Aug 06 10:16:13 web-server sshd[1908]: Failed password for root from 203.0.113.45 port 44331 ssh2
+Aug 06 10:16:18 web-server sshd[1912]: Failed password for root from 203.0.113.45 port 44338 ssh2
+Aug 06 10:16:23 web-server sshd[1916]: Failed password for root from 203.0.113.45 port 44342 ssh2
+Aug 06 10:18:41 web-server sshd[1988]: Accepted password for admin from 192.168.1.22 port 53001 ssh2
+Aug 06 10:22:10 web-server sshd[2051]: Failed password for invalid user test from 198.51.100.27 port 49122 ssh2
+Aug 06 10:22:16 web-server sshd[2055]: Failed password for invalid user guest from 198.51.100.27 port 49129 ssh2
+Aug 06 10:22:22 web-server sshd[2059]: Failed password for invalid user administrator from 198.51.100.27 port 49135 ssh2

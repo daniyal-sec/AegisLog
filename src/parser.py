@@ -73,22 +73,34 @@ def parse_ssh_line(line):
 
 def parse_log_file(file_path):
     """
-    Parse an authentication log file.
-
-    Returns:
-        list[AuthEvent]
+    Read a log file and convert supported SSH authentication
+    entries into AuthEvent objects.
     """
 
     events = []
 
-    with open(file_path, "r", encoding="utf-8") as file:
+    try:
 
-        for line in file:
+        with open(file_path, "r", encoding="utf-8") as file:
 
-            event = parse_ssh_line(line)
+            for line in file:
 
-            if event:
-                events.append(event)
+                event = parse_ssh_line(line)
+
+                if event:
+                    events.append(event)
+
+    except PermissionError:
+        print(f"Error: Permission denied: {file_path}")
+        return None
+
+    except UnicodeDecodeError:
+        print(f"Error: Unable to decode file: {file_path}")
+        return None
+
+    except OSError as error:
+        print(f"Error: Unable to read file: {error}")
+        return None
 
     return events
 

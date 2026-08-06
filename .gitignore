@@ -43,3 +43,6 @@ Thumbs.db
 reports/*.html
 reports/*.json
 reports/*.txt
+
+# Real authentication logs used for local testing
+aegislog-kali-test.log

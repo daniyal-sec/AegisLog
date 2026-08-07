@@ -6,6 +6,7 @@ and converting supported events into structured AuthEvent objects.
 """
 
 import re
+from datetime import datetime
 
 from models import AuthEvent
 
@@ -31,6 +32,10 @@ def parse_ssh_line(line):
         return None
 
     timestamp = match.group("timestamp")
+    timestamp = datetime.strptime(
+        timestamp,
+        "%b %d %H:%M:%S"
+    )
     hostname = match.group("hostname")
     pid = int(match.group("pid"))
     message = match.group("message")

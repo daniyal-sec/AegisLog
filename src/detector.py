@@ -8,7 +8,7 @@ and extracting security findings.
 from collections import defaultdict
 from models import ThreatFinding
 
-def detect_bruteforce(events, threshold=5):
+def detect_bruteforce(events, threshold=5, time_window=60):
     """
     Detect brute-force attacks.
     """
@@ -28,7 +28,15 @@ def detect_bruteforce(events, threshold=5):
 
     for(ip, username), attempts in grouped_events.items():
 
+        attempts.sort(key=lambda event: event.timestamp)
         if len(attempts) < threshold:
+            continue
+
+        time_difference = (
+        attempts[-1].timestamp - attempts[0].timestamp
+        ).total_seconds()
+
+        if time_difference > time_window:
             continue
 
         findings.append(
@@ -54,7 +62,7 @@ def detect_bruteforce(events, threshold=5):
         )
     return findings
 
-def detect_username_enumeration(events, threshold=3):
+def detect_username_enumeration(events, threshold=3, time_window=60,):
     """
     Detect username enumeration attacks.
 
@@ -74,9 +82,18 @@ def detect_username_enumeration(events, threshold=3):
 
     for ip, attempts in grouped_events.items():
 
+        attempts.sort(key=lambda event: event.timestamp)
+
         usernames = {event.username for event in attempts}
 
         if len(usernames) < threshold:
+            continue
+
+        time_difference = (
+            attempts[-1].timestamp - attempts[0].timestamp
+        ).total_seconds()
+
+        if time_difference > time_window:
             continue
 
         findings.append(
@@ -104,7 +121,7 @@ def detect_username_enumeration(events, threshold=3):
         )
     return findings
 
-def detect_success_after_failures(events, threshold=3):
+def detect_success_after_failures(events, threshold=3, time_window=60):
     """
     Detect a successful login after multiple failed attempts
     from the same source IP and username.
@@ -124,6 +141,8 @@ def detect_success_after_failures(events, threshold=3):
 
     for(ip, username), event_list in grouped_events.items():
 
+        event_list.sort(key=lambda event: event.timestamp)
+
         failed_count = 0
         first_failure = None
 
@@ -136,6 +155,13 @@ def detect_success_after_failures(events, threshold=3):
                     first_failure = event
 
             elif event.status == "ACCEPTED" and failed_count >= threshold:
+
+                time_difference = (
+                    event.timestamp - first_failure.timestamp
+                ).total_seconds()
+
+                if time_difference > time_window:
+                    continue
 
                 findings.append(
                     ThreatFinding(
@@ -159,7 +185,7 @@ def detect_success_after_failures(events, threshold=3):
 
 
 
-def detect_password_spraying(events, threshold=4):
+def detect_password_spraying(events, threshold=4, time_window=60,):
     """
     Detect possible password spraying activity.
 
@@ -185,9 +211,17 @@ def detect_password_spraying(events, threshold=4):
 
     for ip, attempts in grouped_events.items():
 
+        attempts.sort(key=lambda event: event.timestamp)
+        
         usernames = {event.username for event in attempts}
 
         if len(usernames) < threshold:
+            continue
+        time_difference = (
+        attempts[-1].timestamp - attempts[0].timestamp
+        ).total_seconds()
+
+        if time_difference > time_window:
             continue
 
         findings.append(

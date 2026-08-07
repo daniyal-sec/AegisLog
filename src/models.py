@@ -5,13 +5,14 @@ Defines the structured data models used throughout AegisLog.
 """
 
 from dataclasses import dataclass
+from datetime import datetime
 
 
 @dataclass
 class AuthEvent:
     """Represents a normalized SSH authentication event."""
 
-    timestamp: str
+    timestamp: datetime
     hostname: str
     service: str
     pid: int

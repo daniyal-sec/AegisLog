@@ -1,6 +1,7 @@
+from datetime import datetime
 import sys
 from pathlib import Path
-
+from report_generator import generate_report, save_report
 from parser import parse_log_file
 from detector import (
     detect_bruteforce,
@@ -44,19 +45,18 @@ def main():
     findings.extend(detect_password_spraying(events))
 
 
-    print(f"\nEvents Parsed : {len(events)}")
-    print(f"Threats Found : {len(findings)}\n")
+    report = generate_report(events, findings, log_path.name)
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
-    for finding in findings:
+    report_path = Path("reports") / f"report_{timestamp}.txt"
 
-        print(f"Attack Type : {finding.attack_type}")
-        print(f"Severity    : {finding.severity}")
-        print(f"Source IP   : {finding.source_ip}")
-        print(f"Target User : {finding.target_user}")
-        print(f"Attempts    : {finding.attempts}")
-        print(f"First Seen  : {finding.first_seen}")
-        print(f"Last Seen   : {finding.last_seen}")
-        print("-" * 50)
+    save_report(report, report_path)
+
+    print()
+    print(report) 
+
+    print()
+    print(f"Report saved to: {report_path}")  
 
 
 if __name__ == "__main__":

@@ -1,0 +1,4 @@
+Aug 08 20:00:01 kali sshd[3001]: Failed password for kali from 192.168.19.1 port 50001 ssh2
+Aug 08 20:00:05 kali sshd[3001]: Failed password for kali from 192.168.19.1 port 50001 ssh2
+Aug 08 20:00:10 kali sshd[3001]: Failed password for kali from 192.168.19.1 port 50001 ssh2
+Aug 08 20:00:15 kali sshd[3001]: Accepted password for kali from 192.168.19.1 port 50001 ssh2

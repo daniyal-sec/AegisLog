@@ -3,6 +3,7 @@ import sys
 from pathlib import Path
 from report_generator import generate_report, save_report
 from parser import parse_log_file
+from utils import enrich_findings
 from detector import (
     detect_bruteforce,
     detect_username_enumeration,
@@ -45,6 +46,8 @@ def main():
     findings.extend(detect_success_after_failures(events))
     findings.extend(detect_password_spraying(events))
     findings.extend(detect_root_login(events))
+    
+    findings = enrich_findings(findings)
 
 
     report = generate_report(events, findings, log_path.name)

@@ -86,12 +86,15 @@ def generate_report(events, findings, log_file):
 
             report.append(
             f"[{index}] {finding.attack_type.upper()}"
-    )
+        )
 
             report.append("-" * 50)
 
             report.append(f"Severity    : {finding.severity}")
             report.append(f"Source IP   : {finding.source_ip}")
+            report.append(
+                f"IP Type     : {finding.ip_classification}"
+        )
             report.append(f"Target User : {finding.target_user}")
             report.append(f"Attempts    : {finding.attempts}")
 

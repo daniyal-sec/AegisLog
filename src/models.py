@@ -37,4 +37,5 @@ class ThreatFinding:
     first_seen: str
     last_seen: str
     recommendation: str
+    ip_classification: str = "unknown"
 

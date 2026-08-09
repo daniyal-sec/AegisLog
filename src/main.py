@@ -8,6 +8,7 @@ from detector import (
     detect_username_enumeration,
     detect_success_after_failures,
     detect_password_spraying,
+    detect_root_login,
 )
 
 
@@ -43,6 +44,7 @@ def main():
     findings.extend(detect_username_enumeration(events))
     findings.extend(detect_success_after_failures(events))
     findings.extend(detect_password_spraying(events))
+    findings.extend(detect_root_login(events))
 
 
     report = generate_report(events, findings, log_path.name)

@@ -240,7 +240,38 @@ def detect_password_spraying(events, threshold=4, time_window=60,):
                 ),
             )
         )
+    return findings
 
+def detect_root_login(events):
+    """
+    Detect successful SSH logins using the root account.
+    """
+
+    findings = []
+
+    for event in events:
+
+        if event.status != "ACCEPTED":
+            continue
+        if  event.username.lower() != "root":
+            continue
+
+        findings.append(
+            ThreatFinding(
+                attack_type="Root Login",
+                severity="HIGH",
+                source_ip=event.source_ip,
+                target_user=event.username,
+                attempts=1,
+                service=event.service,
+                first_seen=event.timestamp,
+                last_seen=event.timestamp,
+                recommendation=(
+                    "Verify whether the root login is authorized "
+                    "and investigate the source IP."
+                ),
+            )
+        )
 
 
     return findings

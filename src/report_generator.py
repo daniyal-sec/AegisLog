@@ -21,7 +21,7 @@ def generate_report(events, findings, log_file):
     # Report Header
     # ==========================
     report.append("=" * 50)
-    report.append("              AEGISLOG REPORT")
+    report.append("              AEGISLOG SECURITY REPORT")
     report.append("=" * 50)
     report.append("")
 
@@ -35,8 +35,8 @@ def generate_report(events, findings, log_file):
     # ==========================
     # Analysis Summary
     # ==========================
-    report.append("Analysis Summary")
-    report.append("-" * 50)
+    report.append("ANALYSIS SUMMARY")
+    report.append("=" * 50)
     report.append(f"Events Parsed : {len(events)}")
     report.append(f"Threats Found : {len(findings)}")
     report.append("")
@@ -63,8 +63,8 @@ def generate_report(events, findings, log_file):
         elif finding.severity == "LOW":
             low += 1
 
-    report.append("Threat Severity")
-    report.append("-" * 50)
+    report.append("THREAT SEVERITY")
+    report.append("=" * 50)
     report.append(f"Critical : {critical}")
     report.append(f"High     : {high}")
     report.append(f"Medium   : {medium}")
@@ -74,35 +74,41 @@ def generate_report(events, findings, log_file):
     # ==========================
     # Threat Details
     # ==========================
-    report.append("Threat Details")
+    report.append("DETECTED THREATS")
     report.append("-" * 50)
     report.append("")
 
-    for index, finding in enumerate(findings, start=1):
+    if not findings:
+        report.append("No threats detected.")
+        report.append("")
+    else:
+        for index, finding in enumerate(findings, start=1):
 
-        report.append(f"Threat {index}")
-        report.append("-" * 30)
+            report.append(
+            f"[{index}] {finding.attack_type.upper()}"
+    )
 
-        report.append(f"Attack Type : {finding.attack_type}")
-        report.append(f"Severity    : {finding.severity}")
-        report.append(f"Source IP   : {finding.source_ip}")
-        report.append(f"Target User : {finding.target_user}")
-        report.append(f"Attempts    : {finding.attempts}")
+            report.append("-" * 50)
 
-        report.append(
+            report.append(f"Severity    : {finding.severity}")
+            report.append(f"Source IP   : {finding.source_ip}")
+            report.append(f"Target User : {finding.target_user}")
+            report.append(f"Attempts    : {finding.attempts}")
+
+            report.append(
             f"First Seen  : {finding.first_seen.strftime('%b %d %H:%M:%S')}"
         )
 
-        report.append(
+            report.append(
             f"Last Seen   : {finding.last_seen.strftime('%b %d %H:%M:%S')}"
         )
 
-        report.append("Recommendation")
-        report.append(f"  {finding.recommendation}")
+            report.append("Recommendation")
+            report.append(f"  {finding.recommendation}")
 
-        report.append("")
-        report.append("-" * 50)
-        report.append("")
+            report.append("")
+            report.append("-" * 50)
+            report.append("")
 
     return "\n".join(report)
 

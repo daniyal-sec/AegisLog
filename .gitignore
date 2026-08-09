@@ -46,3 +46,9 @@ reports/*.txt
 
 # Real authentication logs used for local testing
 aegislog-kali-test.log
+
+# Environment variables / secrets
+.env
+.env.*
+
+sample_logs/live_test.log

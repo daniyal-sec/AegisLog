@@ -41,7 +41,7 @@ def detect_bruteforce(events, threshold=5, time_window=60):
 
         findings.append(
             ThreatFinding(
-                attack_type="SSH Brute Force",
+                attack_type="Authentication Brute Force",
 
                 severity="HIGH",
 

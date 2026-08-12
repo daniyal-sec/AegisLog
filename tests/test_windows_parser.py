@@ -11,6 +11,7 @@ from pathlib import Path
 from datetime import datetime
 
 # Add AegisLog/src to Python's import path.
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 SRC_PATH = PROJECT_ROOT / "src"
 
@@ -50,19 +51,24 @@ def create_event(
     """
     Create a synthetic Windows 4624/4625 event.
 
-    Windows event fields used by the current parser:
-        [5]  Username
-        [8]  Logon Type
-        [18] Source IP
-        [19] Source Port
+    Windows Security Event fields used by the parser:
+
+        [5]  Target Username
+        [10] Logon Type
+        [19] Source IP
+        [20] Source Port
     """
 
-    fields = ["-"] * 20
+    # Windows Security 4624/4625 events contain
+    # at least 21 StringInserts fields for the
+    # structure used by AegisLog.
+
+    fields = ["-"] * 21
 
     fields[5] = username
-    fields[8] = logon_type
-    fields[18] = source_ip
-    fields[19] = source_port
+    fields[10] = logon_type
+    fields[19] = source_ip
+    fields[20] = source_port
 
     return FakeWindowsEvent(
         event_id=event_id,
@@ -114,7 +120,7 @@ def test_failed_logon_4625():
 
 def test_loopback_address_is_normalized_to_local():
     """
-    Verify that the current parser normalizes
+    Verify that the parser normalizes
     127.0.0.1 to 'local'.
     """
 
@@ -225,3 +231,30 @@ def test_ip_classification():
         "not-an-ip",
         "3",
     ) == "unknown"
+
+def test_failed_logon_falls_back_to_subject_username():
+    """
+    Verify that a Windows 4625 event with a missing
+    TargetUserName falls back to SubjectUserName.
+    """
+
+    fields = ["-"] * 21
+
+    fields[1] = "danyyy"
+    fields[5] = "-"
+    fields[10] = "2"
+    fields[19] = "::1"
+    fields[20] = "0"
+
+    event = FakeWindowsEvent(
+        event_id=4625,
+        fields=fields,
+    )
+
+    result = parse_windows_event(event)
+
+    assert result is not None
+    assert result.status == "FAILED"
+    assert result.username == "danyyy"
+    assert result.source_ip == "local"
+    assert result.source_port == 0

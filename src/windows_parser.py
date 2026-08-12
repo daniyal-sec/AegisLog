@@ -75,11 +75,27 @@ def parse_windows_event(event):
     ):
         return None
 
-    username = get_event_field(event, 5)
-    logon_type = get_event_field(event, 8)
+    # Windows may report the target username as "-"
+    # for local authentication failures. In that case,
+    # fall back to the subject username.
 
-    source_ip = get_event_field(event, 18)
-    source_port = get_event_field(event, 19)
+    target_username = get_event_field(event, 5)
+    subject_username = get_event_field(event, 1)
+
+    username = (
+    target_username
+    if target_username and target_username != "-"
+    else subject_username
+)
+
+    # Windows Security 4624/4625:
+    # Field 10 = Logon Type
+    # Field 19 = Source IP
+    # Field 20 = Source Port
+    logon_type = get_event_field(event, 10)
+
+    source_ip = get_event_field(event, 19)
+    source_port = get_event_field(event, 20)
 
     # Ignore service logons.
     if logon_type == "5":
@@ -91,7 +107,13 @@ def parse_windows_event(event):
 
     # Windows may report local authentication without
     # providing a remote source address.
-    if source_ip in ("-", "", "::", "127.0.0.1"):
+    if source_ip in (
+    "-",
+    "",
+    "::",
+    "::1",
+    "127.0.0.1",
+):
         source_ip = "local"
 
     try:

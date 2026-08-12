@@ -7,6 +7,7 @@ security investigation reports.
 
 from datetime import datetime
 
+
 def generate_report(events, findings, log_file):
     """
     Generate a human-readable security investigation report.
@@ -26,7 +27,8 @@ def generate_report(events, findings, log_file):
     report.append("")
 
     report.append(
-        f"Generated on : {datetime.now().strftime('%b %d %Y %H:%M:%S')}"
+        f"Generated on : "
+        f"{datetime.now().strftime('%b %d %Y %H:%M:%S')}"
     )
 
     report.append(f"Log File     : {log_file}")
@@ -79,35 +81,86 @@ def generate_report(events, findings, log_file):
     report.append("")
 
     if not findings:
+
         report.append("No threats detected.")
         report.append("")
+
     else:
-        for index, finding in enumerate(findings, start=1):
+
+        for index, finding in enumerate(
+            findings,
+            start=1
+        ):
 
             report.append(
-            f"[{index}] {finding.attack_type.upper()}"
-        )
+                f"[{index}] "
+                f"{finding.attack_type.upper()}"
+            )
 
             report.append("-" * 50)
 
-            report.append(f"Severity    : {finding.severity}")
-            report.append(f"Source IP   : {finding.source_ip}")
             report.append(
-                f"IP Type     : {finding.ip_classification}"
-        )
-            report.append(f"Target User : {finding.target_user}")
-            report.append(f"Attempts    : {finding.attempts}")
+                f"Severity    : {finding.severity}"
+            )
 
             report.append(
-            f"First Seen  : {finding.first_seen.strftime('%b %d %H:%M:%S')}"
-        )
+                f"Source IP   : {finding.source_ip}"
+            )
 
             report.append(
-            f"Last Seen   : {finding.last_seen.strftime('%b %d %H:%M:%S')}"
-        )
+                f"IP Type     : "
+                f"{finding.ip_classification}"
+            )
+
+            report.append(
+                f"Target User : {finding.target_user}"
+            )
+
+            report.append(
+                f"Attempts    : {finding.attempts}"
+            )
+
+            # ==========================
+            # Correlation Context
+            # ==========================
+
+            report.append(
+                f"Events      : "
+                f"{finding.event_count}"
+            )
+
+            report.append(
+                f"Failed      : "
+                f"{finding.failed_attempts}"
+            )
+
+            report.append(
+                f"Successful  : "
+                f"{finding.successful_attempts}"
+            )
+
+            report.append(
+                f"Duration    : "
+                f"{finding.duration_seconds:.1f} seconds"
+            )
+
+            report.append(
+                f"First Seen  : "
+                f"{finding.first_seen.strftime('%b %d %H:%M:%S')}"
+            )
+
+            report.append(
+                f"Last Seen   : "
+                f"{finding.last_seen.strftime('%b %d %H:%M:%S')}"
+            )
+
+            report.append("")
 
             report.append("Recommendation")
-            report.append(f"  {finding.recommendation}")
+
+            report.append(
+                f"  {finding.recommendation}"
+            )
 
             report.append("")
             report.append("-" * 50)
@@ -115,8 +168,8 @@ def generate_report(events, findings, log_file):
 
     return "\n".join(report)
 
-def save_report(report, output_path):
 
+def save_report(report, output_path):
     """
     Save a generated report to a text file.
 
@@ -126,10 +179,17 @@ def save_report(report, output_path):
     """
 
     try:
-        with open(output_path, "w", encoding="utf-8") as file:
+
+        with open(
+            output_path,
+            "w",
+            encoding="utf-8"
+        ) as file:
+
             file.write(report)
 
     except OSError as error:
-        print(f"Error: Unable to save report: {error}")
 
-        
+        print(
+            f"Error: Unable to save report: {error}"
+        )

@@ -15,6 +15,9 @@ def classify_ip(ip_address):
         str: IP classification.
     """
 
+    if ip_address == "local":
+        return "Local"
+
     try:
         ip = ipaddress.ip_address(ip_address)
 

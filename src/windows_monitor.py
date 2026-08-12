@@ -20,20 +20,73 @@ SUCCESSFUL_LOGON = 4624
 FAILED_LOGON = 4625
 
 
-def get_latest_record_number(handle):
+def get_latest_record_number():
     """Get the newest Windows Security Event record number."""
 
-    events = win32evtlog.ReadEventLog(
-        handle,
-        win32evtlog.EVENTLOG_BACKWARDS_READ
-        | win32evtlog.EVENTLOG_SEQUENTIAL_READ,
-        0,
+    handle = win32evtlog.OpenEventLog(
+        None,
+        SECURITY_LOG,
     )
 
-    if not events:
-        return 0
+    try:
+        events = win32evtlog.ReadEventLog(
+            handle,
+            win32evtlog.EVENTLOG_BACKWARDS_READ
+            | win32evtlog.EVENTLOG_SEQUENTIAL_READ,
+            0,
+        )
 
-    return events[0].RecordNumber
+        if not events:
+            return 0
+
+        return max(
+            event.RecordNumber
+            for event in events
+        )
+
+    finally:
+        win32evtlog.CloseEventLog(handle)
+
+
+def get_new_events(last_record_number):
+    """
+    Read recent Windows Security events and return only
+    records newer than last_record_number.
+    """
+
+    handle = win32evtlog.OpenEventLog(
+        None,
+        SECURITY_LOG,
+    )
+
+    try:
+
+        all_new_events = []
+
+        while True:
+
+            events = win32evtlog.ReadEventLog(
+                handle,
+                win32evtlog.EVENTLOG_BACKWARDS_READ
+                | win32evtlog.EVENTLOG_SEQUENTIAL_READ,
+                0,
+            )
+
+            if not events:
+                break
+
+            for event in events:
+
+                if event.RecordNumber <= last_record_number:
+                    return all_new_events
+
+                all_new_events.append(event)
+
+        return all_new_events
+
+    finally:
+
+        win32evtlog.CloseEventLog(handle)
 
 
 def print_finding(finding):
@@ -44,11 +97,17 @@ def print_finding(finding):
     print("        AEGISLOG SECURITY ALERT")
     print("!" * 50)
 
-    print(f"Attack Type : {finding.attack_type}")
-    print(f"Severity    : {finding.severity}")
-    print(f"Source IP   : {finding.source_ip}")
-    print(f"Target User : {finding.target_user}")
-    print(f"Attempts    : {finding.attempts}")
+    print(
+        f"Attack Type : {finding.attack_type}"
+    )
+
+    print(
+        f"Severity    : {finding.severity}"
+    )
+
+    print(
+        f"Source IP   : {finding.source_ip}"
+    )
 
     ip_classification = getattr(
         finding,
@@ -57,13 +116,55 @@ def print_finding(finding):
     )
 
     if ip_classification:
-        print(f"IP Type     : {ip_classification}")
+        print(
+            f"IP Type     : {ip_classification}"
+        )
 
-    print(f"First Seen  : {finding.first_seen}")
-    print(f"Last Seen   : {finding.last_seen}")
+    print(
+        f"Target User : {finding.target_user}"
+    )
+
+    print(
+        f"Attempts    : {finding.attempts}"
+    )
+
+    # --------------------------------------------------
+    # Correlation Context
+    # --------------------------------------------------
+
+    print(
+        f"Events      : "
+        f"{getattr(finding, 'event_count', 0)}"
+    )
+
+    print(
+        f"Failed      : "
+        f"{getattr(finding, 'failed_attempts', 0)}"
+    )
+
+    print(
+        f"Successful  : "
+        f"{getattr(finding, 'successful_attempts', 0)}"
+    )
+
+    print(
+        f"Duration    : "
+        f"{getattr(finding, 'duration_seconds', 0.0):.1f} seconds"
+    )
+
+    print(
+        f"First Seen  : {finding.first_seen}"
+    )
+
+    print(
+        f"Last Seen   : {finding.last_seen}"
+    )
 
     print("Recommendation")
-    print(finding.recommendation)
+
+    print(
+        finding.recommendation
+    )
 
     print("!" * 50)
     print("")
@@ -73,64 +174,111 @@ def monitor_windows_log(poll_interval=1):
     """Monitor Windows Security events in real time."""
 
     try:
-        handle = win32evtlog.OpenEventLog(
-            None,
-            SECURITY_LOG,
+
+        last_record_number = (
+            get_latest_record_number()
         )
 
     except Exception as error:
+
         print(
-            f"ERROR: Unable to open Security log: {error}"
+            f"ERROR: Unable to open Security log: "
+            f"{error}"
         )
+
         return
 
     detector = LiveDetector()
 
-    last_record_number = get_latest_record_number(handle)
-
     print("=" * 60)
     print("          AEGISLOG WINDOWS LIVE MONITOR")
     print("=" * 60)
-    print(f"Log        : {SECURITY_LOG}")
-    print("Status     : ACTIVE")
-    print("Events     : 4624, 4625")
-    print("Detection  : ENABLED")
-    print("Press Ctrl+C to stop.")
+
+    print(
+        f"Log        : {SECURITY_LOG}"
+    )
+
+    print(
+        "Status     : ACTIVE"
+    )
+
+    print(
+        "Events     : 4624, 4625"
+    )
+
+    print(
+        "Detection  : ENABLED"
+    )
+
+    print(
+        "Correlation: ENABLED"
+    )
+
+    print(
+        "Press Ctrl+C to stop."
+    )
+
     print("=" * 60)
     print("")
+
     print(
         f"Starting after event record: "
         f"{last_record_number}"
     )
+
     print("")
-    print("Waiting for NEW authentication events...")
+    print(
+        "Waiting for NEW authentication events..."
+    )
     print("")
 
     try:
 
         while True:
 
-            events = win32evtlog.ReadEventLog(
-                handle,
-                win32evtlog.EVENTLOG_FORWARDS_READ
-                | win32evtlog.EVENTLOG_SEQUENTIAL_READ,
-                0,
-            )
+            try:
 
-            if not events:
-                time.sleep(poll_interval)
+                events = get_new_events(
+                    last_record_number
+                )
+
+            except Exception as error:
+
+                print(
+                    f"ERROR: Unable to read Security "
+                    f"log: {error}"
+                )
+
+                time.sleep(
+                    poll_interval
+                )
+
                 continue
+
+            # Process oldest → newest.
+            
+            events.sort(
+                key=lambda event: event.RecordNumber
+            )
 
             for event in events:
 
-                record_number = event.RecordNumber
+                record_number = (
+                    event.RecordNumber
+                )
 
-                if record_number <= last_record_number:
-                    continue
+                # Always advance our position,
+                # even for events we don't analyze.
+                last_record_number = (
+                    max(
+                        last_record_number,
+                        record_number,
+                    )
+                )
 
-                last_record_number = record_number
-
-                event_id = event.EventID & 0xFFFF
+                event_id = (
+                    event.EventID & 0xFFFF
+                )
 
                 if event_id not in (
                     SUCCESSFUL_LOGON,
@@ -138,7 +286,9 @@ def monitor_windows_log(poll_interval=1):
                 ):
                     continue
 
-                auth_event = parse_windows_event(event)
+                auth_event = (
+                    parse_windows_event(event)
+                )
 
                 if auth_event is None:
                     continue
@@ -147,39 +297,76 @@ def monitor_windows_log(poll_interval=1):
                 print("-" * 60)
 
                 if auth_event.status == "FAILED":
-                    print("WINDOWS FAILED AUTHENTICATION")
+
+                    print(
+                        "WINDOWS FAILED AUTHENTICATION"
+                    )
+
                 else:
-                    print("WINDOWS SUCCESSFUL AUTHENTICATION")
+
+                    print(
+                        "WINDOWS SUCCESSFUL AUTHENTICATION"
+                    )
 
                 print("-" * 60)
-                print(f"Username    : {auth_event.username}")
-                print(f"Source IP   : {auth_event.source_ip}")
-                print(f"Status      : {auth_event.status}")
-                print(f"Event ID    : {event_id}")
-                print(f"Record      : {record_number}")
+
+                print(
+                    f"Username    : "
+                    f"{auth_event.username}"
+                )
+
+                print(
+                    f"Source IP   : "
+                    f"{auth_event.source_ip}"
+                )
+
+                print(
+                    f"Status      : "
+                    f"{auth_event.status}"
+                )
+
+                print(
+                    f"Event ID    : "
+                    f"{event_id}"
+                )
+
+                print(
+                    f"Record      : "
+                    f"{record_number}"
+                )
+
                 print("-" * 60)
 
-                findings = detector.add_event(auth_event)
+                findings = (
+                    detector.add_event(
+                        auth_event
+                    )
+                )
 
                 for finding in findings:
-                    print_finding(finding)
 
-            time.sleep(poll_interval)
+                    print_finding(
+                        finding
+                    )
+
+            time.sleep(
+                poll_interval
+            )
 
     except KeyboardInterrupt:
 
         print("")
-        print("AegisLog Windows monitor stopped.")
+        print(
+            "AegisLog Windows monitor stopped."
+        )
 
     except Exception as error:
 
         print("")
         print(
-            f"ERROR: Windows monitor failed: {error}"
+            f"ERROR: Windows monitor failed: "
+            f"{error}"
         )
-
-    finally:
-        win32evtlog.CloseEventLog(handle)
 
 
 if __name__ == "__main__":

@@ -52,3 +52,7 @@ aegislog-kali-test.log
 .env.*
 
 sample_logs/live_test.log
+
+# Local SQLite database
+data/
+*.db

@@ -5,7 +5,9 @@ Reads new Windows Security Event Log authentication events,
 normalizes them into AuthEvent objects, and sends them through
 the existing AegisLog LiveDetector.
 """
-
+from live_detector import LiveDetector
+from windows_parser import parse_windows_event
+from storage import SecurityStorage
 import time
 
 import win32evtlog
@@ -189,6 +191,7 @@ def monitor_windows_log(poll_interval=1):
         return
 
     detector = LiveDetector()
+    storage = SecurityStorage()
 
     print("=" * 60)
     print("          AEGISLOG WINDOWS LIVE MONITOR")
@@ -256,7 +259,7 @@ def monitor_windows_log(poll_interval=1):
                 continue
 
             # Process oldest → newest.
-            
+
             events.sort(
                 key=lambda event: event.RecordNumber
             )
@@ -292,6 +295,7 @@ def monitor_windows_log(poll_interval=1):
 
                 if auth_event is None:
                     continue
+                storage.save_auth_event(auth_event)
 
                 print("")
                 print("-" * 60)
@@ -344,6 +348,7 @@ def monitor_windows_log(poll_interval=1):
                 )
 
                 for finding in findings:
+                    storage.save_finding(finding)
 
                     print_finding(
                         finding

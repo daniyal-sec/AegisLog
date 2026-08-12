@@ -154,7 +154,7 @@ def detect_success_after_failures(events, threshold=3, time_window=60):
                 if first_failure is None:
                     first_failure = event
 
-            elif event.status == "ACCEPTED" and failed_count >= threshold:
+            elif event.status in ("ACCEPTED", "SUCCESS") and failed_count >= threshold:
 
                 time_difference = (
                     event.timestamp - first_failure.timestamp
@@ -251,7 +251,7 @@ def detect_root_login(events):
 
     for event in events:
 
-        if event.status != "ACCEPTED":
+        if event.status not in ("ACCEPTED", "SUCCESS"):
             continue
         if  event.username.lower() != "root":
             continue

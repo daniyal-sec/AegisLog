@@ -39,3 +39,9 @@ class ThreatFinding:
     recommendation: str
     ip_classification: str = "unknown"
 
+    # Correlation context
+    event_count: int = 0
+    failed_attempts: int = 0
+    successful_attempts: int = 0
+    duration_seconds: float = 0.0
+

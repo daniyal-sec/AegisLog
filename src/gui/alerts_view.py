@@ -1,10 +1,10 @@
 """
-AegisLog Security Alerts View  —  Phase 4 Redesign
+AegisLog Security Alerts View  —  Phase 5
 
 Information hierarchy per finding (top-to-bottom reading):
 
     ┌──────────────────────────────────────────────────────┐
-    │  HIGH    Authentication Brute Force   [Investigate]  │
+    │  HIGH    Authentication Brute Force  [NEW] [Investigate] │
     │  local  ──→  danyyy                          │
     │  ────────────────────────────────────────────────    │
     │  ATTEMPTS   DURATION   FAILED   SUCCESSFUL           │
@@ -14,17 +14,19 @@ Information hierarchy per finding (top-to-bottom reading):
     │  Last Seen    2026-08-12 17:02:01                    │
     └──────────────────────────────────────────────────────┘
 
-Each finding reads as a single coherent incident.
-All data from SecurityStorage. No detection logic duplicated.
+All data from SecurityStorage. Data loaded via background QThread.
+Findings are smartly updated to preserve scroll position.
 """
 
 from __future__ import annotations
+
+from datetime import datetime
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QScrollArea, QFrame, QSizePolicy,
 )
-from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtCore import Qt, QTimer, QThread, QObject, Signal, Slot
 
 from gui.styles import (
     BG_BASE, BG_SURFACE, BG_ELEVATED, BG_OVERLAY,
@@ -35,7 +37,47 @@ from gui.styles import (
     FONT_FAMILY,
 )
 
-REFRESH_INTERVAL_MS = 10_000
+REFRESH_INTERVAL_MS = 5_000
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# BACKGROUND DATA LOADER
+# ─────────────────────────────────────────────────────────────────────────────
+
+class AlertsDataLoader(QObject):
+    """
+    Fetches all findings from SQLite in one pass on a background thread.
+    """
+
+    data_ready = Signal(dict)
+
+    def __init__(self, db_path: str, parent=None):
+        super().__init__(parent)
+        self.db_path = db_path
+
+    @Slot()
+    def load(self):
+        try:
+            from storage import SecurityStorage
+            storage = SecurityStorage(self.db_path)
+            findings = storage.get_findings()
+            
+            # Sort newest first based on last_seen, then ID descending
+            findings.sort(
+                key=lambda f: (str(f.get("last_seen", "")), f.get("id", -1)),
+                reverse=True
+            )
+
+            self.data_ready.emit({
+                "ok": True,
+                "findings": findings,
+                "fetched_at": datetime.now().strftime("%H:%M:%S"),
+            })
+        except Exception as exc:
+            self.data_ready.emit({
+                "ok": False,
+                "error": str(exc)
+            })
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -64,31 +106,23 @@ def _thin_sep(parent=None) -> QFrame:
 class FindingPanel(QWidget):
     """
     Displays one security finding as a self-contained incident panel.
-
-    Vertical information flow:
-        1. Header row: severity chip  |  attack type  |  Investigate
-        2. Source → Target
-        3. Separator
-        4. Metric strip: Attempts / Duration / Failed / Successful
-        5. Separator
-        6. Timestamps: First Seen / Last Seen
     """
 
     investigate_clicked = Signal(int)
 
-    def __init__(self, finding: dict, parent=None):
+    def __init__(self, finding: dict, is_new: bool = False, parent=None):
         super().__init__(parent)
         self._finding_id = finding.get("id", -1)
-
-        severity  = finding.get("severity", "LOW").upper()
-        sev_color = severity_color(severity)
+        self._severity = finding.get("severity", "LOW").upper()
+        self._sev_color = severity_color(self._severity)
+        self._is_new = is_new
 
         self.setObjectName("FindingPanel")
         self.setStyleSheet(f"""
             #FindingPanel {{
                 background-color: {BG_SURFACE};
                 border: 1px solid {BORDER_SUBTLE};
-                border-left: 3px solid {sev_color};
+                border-left: 3px solid {self._sev_color};
             }}
         """)
 
@@ -101,29 +135,41 @@ class FindingPanel(QWidget):
         hdr.setSpacing(12)
         hdr.setContentsMargins(0, 0, 0, 10)
 
-        # Severity chip
-        sev_lbl = QLabel(severity)
-        sev_lbl.setFixedWidth(70)
-        sev_lbl.setStyleSheet(f"""
-            color: {sev_color};
+        self._sev_lbl = QLabel(self._severity)
+        self._sev_lbl.setFixedWidth(70)
+        self._sev_lbl.setStyleSheet(f"""
+            color: {self._sev_color};
             font-size: 10px;
             font-weight: 700;
             letter-spacing: 1.2px;
             background: transparent;
         """)
-        hdr.addWidget(sev_lbl)
+        hdr.addWidget(self._sev_lbl)
 
-        # Attack type — primary headline
-        attack_lbl = QLabel(finding.get("attack_type", "Unknown"))
-        attack_lbl.setStyleSheet(f"""
+        self._attack_lbl = QLabel(finding.get("attack_type", "Unknown"))
+        self._attack_lbl.setStyleSheet(f"""
             color: {TEXT_PRIMARY};
             font-size: 15px;
             font-weight: 600;
             background: transparent;
         """)
-        hdr.addWidget(attack_lbl, stretch=1)
+        hdr.addWidget(self._attack_lbl)
 
-        # Investigate button — anchored to the header
+        self._new_badge = QLabel("NEW")
+        self._new_badge.setStyleSheet(f"""
+            color: {ACCENT};
+            font-size: 9px;
+            font-weight: 700;
+            letter-spacing: 1px;
+            background: transparent;
+            border: 1px solid {ACCENT};
+            padding: 1px 4px;
+            border-radius: 2px;
+        """)
+        self._new_badge.setVisible(self._is_new)
+        hdr.addWidget(self._new_badge)
+        hdr.addStretch()
+
         inv_btn = QPushButton("Investigate →")
         inv_btn.setFixedHeight(28)
         inv_btn.setStyleSheet(f"""
@@ -153,29 +199,28 @@ class FindingPanel(QWidget):
         src_row.setSpacing(0)
         src_row.setContentsMargins(0, 0, 0, 14)
 
-        src_ip     = finding.get("source_ip", "—")
-        target     = finding.get("target_user", "—")
-        ip_class   = finding.get("ip_classification", "")
-        service    = finding.get("service", "")
-
         # Source block
-        src_block = self._source_block("SOURCE", src_ip, ip_class)
+        self._src_val_lbl = QLabel()
+        self._src_val_lbl.setStyleSheet(f"font-size: 13px; font-weight: 500; color: {TEXT_PRIMARY}; background: transparent;")
+        self._src_sub_lbl = QLabel()
+        self._src_sub_lbl.setStyleSheet(f"font-size: 10px; color: {TEXT_MUTED}; background: transparent;")
+        
+        src_block = self._build_source_block("SOURCE", self._src_val_lbl, self._src_sub_lbl)
         src_row.addWidget(src_block)
 
-        # Arrow
         arrow_lbl = QLabel("  ──→  ")
-        arrow_lbl.setStyleSheet(f"""
-            color: {TEXT_MUTED};
-            font-size: 13px;
-            background: transparent;
-        """)
+        arrow_lbl.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 13px; background: transparent;")
         arrow_lbl.setAlignment(Qt.AlignmentFlag.AlignVCenter)
         src_row.addWidget(arrow_lbl)
 
         # Target block
-        tgt_block = self._source_block("TARGET", target, service)
-        src_row.addWidget(tgt_block)
+        self._tgt_val_lbl = QLabel()
+        self._tgt_val_lbl.setStyleSheet(f"font-size: 13px; font-weight: 500; color: {TEXT_PRIMARY}; background: transparent;")
+        self._tgt_sub_lbl = QLabel()
+        self._tgt_sub_lbl.setStyleSheet(f"font-size: 10px; color: {TEXT_MUTED}; background: transparent;")
 
+        tgt_block = self._build_source_block("TARGET", self._tgt_val_lbl, self._tgt_sub_lbl)
+        src_row.addWidget(tgt_block)
         src_row.addStretch()
         root.addLayout(src_row)
 
@@ -188,19 +233,11 @@ class FindingPanel(QWidget):
         metrics_row.setSpacing(0)
         metrics_row.setContentsMargins(0, 0, 0, 12)
 
-        dur = finding.get("duration_seconds", 0)
-        dur_str = f"{dur:.0f}s" if dur < 3600 else f"{dur/3600:.1f}h"
+        self._metric_lbls = {}
+        metric_names = ["ATTEMPTS", "DURATION", "FAILED", "SUCCESSFUL"]
 
-        metrics_data = [
-            ("ATTEMPTS",   str(finding.get("attempts", 0))),
-            ("DURATION",   dur_str),
-            ("FAILED",     str(finding.get("failed_attempts", 0))),
-            ("SUCCESSFUL", str(finding.get("successful_attempts", 0))),
-        ]
-
-        for i, (lbl_text, val_text) in enumerate(metrics_data):
+        for i, lbl_text in enumerate(metric_names):
             if i > 0:
-                # Thin vertical rule between metrics
                 vline = QFrame()
                 vline.setFrameShape(QFrame.Shape.VLine)
                 vline.setStyleSheet(f"color: {BORDER_SUBTLE};")
@@ -212,23 +249,13 @@ class FindingPanel(QWidget):
             col.setSpacing(3)
             col.setContentsMargins(0 if i == 0 else 0, 0, 20, 0)
 
-            val_lbl = QLabel(val_text)
-            val_lbl.setStyleSheet(f"""
-                font-size: 20px;
-                font-weight: 700;
-                color: {TEXT_PRIMARY};
-                background: transparent;
-            """)
+            val_lbl = QLabel()
+            val_lbl.setStyleSheet(f"font-size: 20px; font-weight: 700; color: {TEXT_PRIMARY}; background: transparent;")
             col.addWidget(val_lbl)
+            self._metric_lbls[lbl_text] = val_lbl
 
             name_lbl = QLabel(lbl_text)
-            name_lbl.setStyleSheet(f"""
-                font-size: 9px;
-                font-weight: 600;
-                letter-spacing: 1px;
-                color: {TEXT_MUTED};
-                background: transparent;
-            """)
+            name_lbl.setStyleSheet(f"font-size: 9px; font-weight: 600; letter-spacing: 1px; color: {TEXT_MUTED}; background: transparent;")
             col.addWidget(name_lbl)
             metrics_row.addLayout(col)
 
@@ -244,22 +271,73 @@ class FindingPanel(QWidget):
         ts_layout.setSpacing(28)
         ts_layout.setContentsMargins(0, 0, 0, 0)
 
-        ts_layout.addWidget(
-            self._ts_pair("First Seen", finding.get("first_seen", "—"))
-        )
-        ts_layout.addWidget(
-            self._ts_pair("Last Seen", finding.get("last_seen", "—"))
-        )
+        self._ts_first = QLabel()
+        self._ts_first.setStyleSheet(f"font-size: 11px; color: {TEXT_SECONDARY}; background: transparent;")
+        ts_layout.addWidget(self._build_ts_pair("First Seen", self._ts_first))
+
+        self._ts_last = QLabel()
+        self._ts_last.setStyleSheet(f"font-size: 11px; color: {TEXT_SECONDARY}; background: transparent;")
+        ts_layout.addWidget(self._build_ts_pair("Last Seen", self._ts_last))
+        
         ts_layout.addStretch()
         root.addLayout(ts_layout)
 
-    # ── Sub-widget builders ────────────────────────────────────────────────
+        # Populate with data
+        self.update_data(finding)
 
-    def _source_block(self, role: str, value: str, sub: str = "") -> QWidget:
-        """
-        Two-line block showing ROLE label + value + optional sub-label.
-        Used for both SOURCE and TARGET.
-        """
+    def update_data(self, finding: dict):
+        """Update finding panel labels without recreating the widget."""
+        # Header
+        self._attack_lbl.setText(finding.get("attack_type", "Unknown"))
+        
+        new_severity = finding.get("severity", "LOW").upper()
+        if new_severity != self._severity:
+            self._severity = new_severity
+            self._sev_color = severity_color(self._severity)
+            self._sev_lbl.setText(self._severity)
+            self._sev_lbl.setStyleSheet(f"color: {self._sev_color}; font-size: 10px; font-weight: 700; letter-spacing: 1.2px; background: transparent;")
+            self.setStyleSheet(f"#FindingPanel {{ background-color: {BG_SURFACE}; border: 1px solid {BORDER_SUBTLE}; border-left: 3px solid {self._sev_color}; }}")
+
+        # Source / Target
+        self._src_val_lbl.setText(finding.get("source_ip", "—"))
+        ip_class = finding.get("ip_classification", "")
+        if ip_class and ip_class.lower() not in ("—", "unknown", ""):
+            self._src_sub_lbl.setText(ip_class)
+            self._src_sub_lbl.show()
+        else:
+            self._src_sub_lbl.hide()
+
+        self._tgt_val_lbl.setText(finding.get("target_user", "—"))
+        service = finding.get("service", "")
+        if service and service.lower() not in ("—", "unknown", ""):
+            self._tgt_sub_lbl.setText(service)
+            self._tgt_sub_lbl.show()
+        else:
+            self._tgt_sub_lbl.hide()
+
+        # Metrics
+        dur = finding.get("duration_seconds", 0)
+        dur_str = f"{dur:.0f}s" if dur < 3600 else f"{dur/3600:.1f}h"
+        self._metric_lbls["ATTEMPTS"].setText(str(finding.get("attempts", 0)))
+        self._metric_lbls["DURATION"].setText(dur_str)
+        self._metric_lbls["FAILED"].setText(str(finding.get("failed_attempts", 0)))
+        self._metric_lbls["SUCCESSFUL"].setText(str(finding.get("successful_attempts", 0)))
+
+        # Timestamps
+        self._ts_first.setText(_fmt_ts(finding.get("first_seen", "—")))
+        self._ts_last.setText(_fmt_ts(finding.get("last_seen", "—")))
+
+    def remove_new_badge(self):
+        self._is_new = False
+        self._new_badge.hide()
+
+    def get_finding_id(self) -> int:
+        return self._finding_id
+
+    def get_severity(self) -> str:
+        return self._severity
+
+    def _build_source_block(self, role: str, val_lbl: QLabel, sub_lbl: QLabel) -> QWidget:
         w = QWidget()
         w.setStyleSheet("background: transparent;")
         layout = QVBoxLayout(w)
@@ -267,37 +345,13 @@ class FindingPanel(QWidget):
         layout.setSpacing(2)
 
         role_lbl = QLabel(role)
-        role_lbl.setStyleSheet(f"""
-            font-size: 9px;
-            font-weight: 600;
-            letter-spacing: 1px;
-            color: {TEXT_MUTED};
-            background: transparent;
-        """)
+        role_lbl.setStyleSheet(f"font-size: 9px; font-weight: 600; letter-spacing: 1px; color: {TEXT_MUTED}; background: transparent;")
         layout.addWidget(role_lbl)
-
-        val_lbl = QLabel(value)
-        val_lbl.setStyleSheet(f"""
-            font-size: 13px;
-            font-weight: 500;
-            color: {TEXT_PRIMARY};
-            background: transparent;
-        """)
         layout.addWidget(val_lbl)
-
-        if sub and sub.lower() not in ("—", "unknown", ""):
-            sub_lbl = QLabel(sub)
-            sub_lbl.setStyleSheet(f"""
-                font-size: 10px;
-                color: {TEXT_MUTED};
-                background: transparent;
-            """)
-            layout.addWidget(sub_lbl)
-
+        layout.addWidget(sub_lbl)
         return w
 
-    def _ts_pair(self, label: str, raw) -> QWidget:
-        """Compact label + value timestamp pair."""
+    def _build_ts_pair(self, label: str, val_lbl: QLabel) -> QWidget:
         w = QWidget()
         w.setStyleSheet("background: transparent;")
         layout = QHBoxLayout(w)
@@ -306,20 +360,9 @@ class FindingPanel(QWidget):
 
         lbl = QLabel(label)
         lbl.setFixedWidth(72)
-        lbl.setStyleSheet(f"""
-            font-size: 11px;
-            color: {TEXT_MUTED};
-            background: transparent;
-        """)
+        lbl.setStyleSheet(f"font-size: 11px; color: {TEXT_MUTED}; background: transparent;")
         layout.addWidget(lbl)
-
-        val = QLabel(_fmt_ts(raw))
-        val.setStyleSheet(f"""
-            font-size: 11px;
-            color: {TEXT_SECONDARY};
-            background: transparent;
-        """)
-        layout.addWidget(val)
+        layout.addWidget(val_lbl)
         return w
 
 
@@ -328,28 +371,10 @@ class FindingPanel(QWidget):
 # ─────────────────────────────────────────────────────────────────────────────
 
 class SeverityFilterBar(QWidget):
-    """
-    Horizontal severity filter: ALL / CRITICAL / HIGH / MEDIUM / LOW
-
-    Active filter is highlighted with the amber accent and a bottom border.
-    Inactive filters use muted text with hover.
-    """
-
+    """Horizontal severity filter: ALL / CRITICAL / HIGH / MEDIUM / LOW"""
     filter_changed = Signal(str)
-
     FILTERS = ["ALL", "CRITICAL", "HIGH", "MEDIUM", "LOW"]
 
-    _BTN_BASE = f"""
-        QPushButton {{
-            background: transparent;
-            border: none;
-            border-bottom: 2px solid transparent;
-            padding: 9px 18px;
-            font-size: 11px;
-            font-family: {FONT_FAMILY};
-            letter-spacing: 0.3px;
-        }}
-    """
     _ACTIVE = f"""
         QPushButton {{
             background: transparent;
@@ -409,9 +434,7 @@ class SeverityFilterBar(QWidget):
 
     def _select(self, severity: str):
         for name, btn in self._buttons.items():
-            btn.setStyleSheet(
-                self._ACTIVE if name == severity else self._INACTIVE
-            )
+            btn.setStyleSheet(self._ACTIVE if name == severity else self._INACTIVE)
         self.filter_changed.emit(severity)
 
     def current(self) -> str:
@@ -428,16 +451,8 @@ class SeverityFilterBar(QWidget):
 class AlertsView(QWidget):
     """
     Security Alerts page.
-
-    Layout:
-        ┌─ filter bar (ALL / CRITICAL / HIGH / MEDIUM / LOW) ──────────┐
-        │  N security findings                          [last refreshed]│
-        ├──────────────────────────────────────────────────────────────┤
-        │  Scrollable list of FindingPanel widgets                     │
-        │  (constrained max-width; not stretched across full window)   │
-        └──────────────────────────────────────────────────────────────┘
-
-    All data from SecurityStorage. Auto-refreshes every 10 s.
+    All data from SecurityStorage. Data is loaded in a background thread.
+    Finding panels are smartly updated to prevent jumpiness.
     """
 
     investigate_requested = Signal(int)
@@ -445,28 +460,21 @@ class AlertsView(QWidget):
     def __init__(self, db_path: str, parent=None):
         super().__init__(parent)
         self.db_path = db_path
-        self._storage = None
         self._all_findings: list[dict] = []
         self._current_filter = "ALL"
-        self._db_error: str | None = None
+        self._loading = False
+        
+        self._known_finding_ids = set()
+        self._finding_panels: dict[int, FindingPanel] = {}
 
-        self._init_storage()
         self._build_ui()
+
+        # Initial load
+        self.refresh()
 
         self._timer = QTimer(self)
         self._timer.timeout.connect(self.refresh)
         self._timer.start(REFRESH_INTERVAL_MS)
-
-        self.refresh()
-
-    def _init_storage(self):
-        try:
-            from storage import SecurityStorage
-            self._storage = SecurityStorage(self.db_path)
-            self._db_error = None
-        except Exception as exc:
-            self._storage = None
-            self._db_error = str(exc)
 
     # ── UI construction ────────────────────────────────────────────────────
 
@@ -491,16 +499,12 @@ class AlertsView(QWidget):
         meta_layout.setContentsMargins(28, 0, 28, 0)
 
         self._count_lbl = QLabel("")
-        self._count_lbl.setStyleSheet(
-            f"color: {TEXT_SECONDARY}; font-size: 11px; background: transparent;"
-        )
+        self._count_lbl.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: 11px; background: transparent;")
         meta_layout.addWidget(self._count_lbl)
         meta_layout.addStretch()
 
         self._refresh_lbl = QLabel("")
-        self._refresh_lbl.setStyleSheet(
-            f"color: {TEXT_MUTED}; font-size: 10px; background: transparent;"
-        )
+        self._refresh_lbl.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 10px; background: transparent;")
         meta_layout.addWidget(self._refresh_lbl)
         layout.addWidget(meta_bar)
 
@@ -511,14 +515,13 @@ class AlertsView(QWidget):
         scroll.setStyleSheet(f"background-color: {BG_BASE};")
         layout.addWidget(scroll)
 
-        # Inner container — constrained width so panels don't spread full screen
+        # Inner container
         outer_container = QWidget()
         outer_container.setStyleSheet(f"background-color: {BG_BASE};")
         outer_layout = QHBoxLayout(outer_container)
         outer_layout.setContentsMargins(0, 0, 0, 0)
         outer_layout.setSpacing(0)
 
-        # The actual panel list sits in a width-constrained inner widget
         self._panels_widget = QWidget()
         self._panels_widget.setStyleSheet(f"background-color: {BG_BASE};")
         self._panels_widget.setMaximumWidth(960)
@@ -553,22 +556,12 @@ class AlertsView(QWidget):
         layout.setSpacing(8)
 
         t = QLabel(title)
-        t.setStyleSheet(f"""
-            font-size: 13px;
-            font-weight: 600;
-            letter-spacing: 1.5px;
-            color: {TEXT_MUTED};
-            background: transparent;
-        """)
+        t.setStyleSheet(f"font-size: 13px; font-weight: 600; letter-spacing: 1.5px; color: {TEXT_MUTED}; background: transparent;")
         t.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(t)
 
         s = QLabel(subtitle)
-        s.setStyleSheet(f"""
-            font-size: 11px;
-            color: {TEXT_MUTED};
-            background: transparent;
-        """)
+        s.setStyleSheet(f"font-size: 11px; color: {TEXT_MUTED}; background: transparent;")
         s.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(s)
 
@@ -582,49 +575,49 @@ class AlertsView(QWidget):
         layout.setSpacing(8)
 
         t = QLabel("DATABASE ERROR")
-        t.setStyleSheet(f"""
-            font-size: 13px;
-            font-weight: 600;
-            letter-spacing: 1.5px;
-            color: {SEVERITY_HIGH};
-            background: transparent;
-        """)
+        t.setStyleSheet(f"font-size: 13px; font-weight: 600; letter-spacing: 1.5px; color: {SEVERITY_HIGH}; background: transparent;")
         t.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(t)
 
         self._error_detail_lbl = QLabel("Unable to load security findings.")
-        self._error_detail_lbl.setStyleSheet(f"""
-            font-size: 11px;
-            color: {TEXT_MUTED};
-            background: transparent;
-        """)
+        self._error_detail_lbl.setStyleSheet(f"font-size: 11px; color: {TEXT_MUTED}; background: transparent;")
         self._error_detail_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self._error_detail_lbl)
 
         return w
 
-    # ── Data ───────────────────────────────────────────────────────────────
+    # ── Background data loading ────────────────────────────────────────────
 
     def refresh(self):
-        if self._storage is None:
-            self._init_storage()
-            if self._storage is None:
-                self._show_error()
-                return
-
-        try:
-            self._all_findings = self._storage.get_findings()
-            self._all_findings = list(reversed(self._all_findings))  # newest first
-            self._db_error = None
-        except Exception as exc:
-            self._db_error = str(exc)
-            self._show_error()
+        if self._loading:
             return
 
-        from datetime import datetime
-        self._refresh_lbl.setText(
-            f"Updated {datetime.now().strftime('%H:%M:%S')}"
-        )
+        self._loading = True
+        self._refresh_lbl.setText("Refreshing…")
+
+        self._load_thread = QThread(self)
+        self._loader = AlertsDataLoader(self.db_path)
+        self._loader.moveToThread(self._load_thread)
+
+        self._load_thread.started.connect(self._loader.load)
+        self._loader.data_ready.connect(self._on_data_ready)
+        self._load_thread.finished.connect(self._load_thread.deleteLater)
+
+        self._load_thread.start()
+
+    @Slot(dict)
+    def _on_data_ready(self, data: dict):
+        self._loading = False
+        self._load_thread.quit()
+        self._load_thread.wait()
+
+        if not data.get("ok"):
+            self._show_error(data.get("error", "Unknown error"))
+            return
+
+        self._all_findings = data["findings"]
+        self._refresh_lbl.setText(f"Updated {data['fetched_at']}")
+        
         self._render_panels()
 
     def _on_filter_changed(self, severity: str):
@@ -634,10 +627,9 @@ class AlertsView(QWidget):
     # ── Rendering ──────────────────────────────────────────────────────────
 
     def _render_panels(self):
-        """Clear and rebuild the finding panels for the active filter."""
         self._error_widget.hide()
 
-        # Filter
+        # Apply filter
         if self._current_filter == "ALL":
             visible = self._all_findings
         else:
@@ -648,50 +640,63 @@ class AlertsView(QWidget):
 
         # Update count label
         n = len(visible)
-        filter_suffix = (
-            "" if self._current_filter == "ALL"
-            else f" — {self._current_filter}"
-        )
-        self._count_lbl.setText(
-            f"{n} security finding{'s' if n != 1 else ''}{filter_suffix}"
-        )
-
-        # Clear existing panels (keep the trailing stretch)
-        while self._panels_layout.count() > 1:
-            item = self._panels_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
+        filter_suffix = "" if self._current_filter == "ALL" else f" — {self._current_filter}"
+        self._count_lbl.setText(f"{n} security finding{'s' if n != 1 else ''}{filter_suffix}")
 
         if not visible:
-            self._empty_widget.show()
             self._panels_widget.hide()
+            self._empty_widget.show()
             return
 
         self._empty_widget.hide()
         self._panels_widget.show()
 
-        for finding in visible:
-            panel = FindingPanel(finding)
-            panel.investigate_clicked.connect(self.investigate_requested)
-            self._panels_layout.insertWidget(
-                self._panels_layout.count() - 1, panel
-            )
+        # Determine which findings are newly seen in this app session
+        # Do not mark as "NEW" on the very first load
+        first_load = len(self._known_finding_ids) == 0
 
-    def _show_error(self):
-        """Show the database error state."""
-        self._clear_panels()
+        # Maintain order in layout according to 'visible'
+        # To avoid flicker and lost scroll position, we selectively add/remove
+        # panels and reposition them.
+
+        visible_ids = []
+        for index, finding in enumerate(visible):
+            f_id = finding.get("id", -1)
+            visible_ids.append(f_id)
+
+            if f_id not in self._finding_panels:
+                is_new = not first_load and (f_id not in self._known_finding_ids)
+                panel = FindingPanel(finding, is_new=is_new)
+                panel.investigate_clicked.connect(self.investigate_requested)
+                self._finding_panels[f_id] = panel
+                self._known_finding_ids.add(f_id)
+            else:
+                self._finding_panels[f_id].update_data(finding)
+
+            # Ensure it is at the correct position in the layout
+            current_widget = self._panels_layout.itemAt(index).widget()
+            if current_widget != self._finding_panels[f_id]:
+                # Remove it from wherever it is and insert it here
+                self._panels_layout.insertWidget(index, self._finding_panels[f_id])
+
+        # Remove panels that no longer match the filter
+        # Keep them in `_finding_panels` cache so they aren't marked "NEW" if filter changes back
+        layout_count = self._panels_layout.count()
+        # The last item is a stretch, so we iterate up to count-1
+        items_to_remove = []
+        for i in range(layout_count - 1):
+            widget = self._panels_layout.itemAt(i).widget()
+            if isinstance(widget, FindingPanel) and widget.get_finding_id() not in visible_ids:
+                items_to_remove.append(widget)
+
+        for widget in items_to_remove:
+            self._panels_layout.removeWidget(widget)
+            widget.setParent(None)
+
+    def _show_error(self, error_msg: str):
         self._empty_widget.hide()
         self._panels_widget.hide()
-        self._error_detail_lbl.setText(
-            f"Unable to load security findings."
-            + (f"\n{self._db_error}" if self._db_error else "")
-        )
+        self._error_detail_lbl.setText(f"Unable to load security findings.\n{error_msg}")
         self._error_widget.show()
         self._count_lbl.setText("")
-        self._refresh_lbl.setText("")
 
-    def _clear_panels(self):
-        while self._panels_layout.count() > 1:
-            item = self._panels_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()

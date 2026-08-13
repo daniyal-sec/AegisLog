@@ -1,97 +1,234 @@
 """
-AegisLog Investigation View
+AegisLog Investigation View  —  Phase 6 Redesign
 
-Displays stored findings in a list and allows deep-diving into
-individual incidents, including the correlated event timeline.
-Reuses SecurityStorage queries exactly as InvestigationConsole does.
+Professional incident investigation workspace.
+Workflow:
+  - Select finding on left (loads async)
+  - View full incident context, timeline, summary, and recommendation on right
 """
 
+from __future__ import annotations
 from datetime import datetime
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QListWidget,
     QListWidgetItem, QTableWidget, QTableWidgetItem, QFrame,
-    QScrollArea, QSplitter, QSizePolicy, QHeaderView,
+    QScrollArea, QSplitter, QPushButton, QHeaderView, QDialog
 )
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, Signal, QThread, QObject, Slot, QTimer
 from PySide6.QtGui import QColor, QFont
 
 from gui.styles import (
     BG_BASE, BG_SURFACE, BG_ELEVATED, BG_OVERLAY,
     BORDER_SUBTLE, BORDER_DEFAULT,
     TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED,
-    SEVERITY_HIGH, SEVERITY_CRITICAL, SEVERITY_MEDIUM,
+    SEVERITY_CRITICAL, SEVERITY_HIGH, SEVERITY_MEDIUM, SEVERITY_LOW,
     STATUS_SUCCESS_TEXT, STATUS_FAILED_TEXT,
     severity_color, status_text_color,
-    FONT_FAMILY, FONT_MONO,
+    FONT_FAMILY, FONT_MONO, ACCENT
 )
+
+REFRESH_INTERVAL_MS = 10_000
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# DATA LOADERS (Background QThread)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class InvestigationFindingsLoader(QObject):
+    data_ready = Signal(dict)
+
+    def __init__(self, db_path: str, parent=None):
+        super().__init__(parent)
+        self.db_path = db_path
+
+    @Slot()
+    def load(self):
+        try:
+            from storage import SecurityStorage
+            storage = SecurityStorage(self.db_path)
+            findings = storage.get_findings()
+            # Sort newest first, tie-break by ID
+            findings.sort(key=lambda f: (str(f.get("last_seen", "")), f.get("id", -1)), reverse=True)
+            self.data_ready.emit({"ok": True, "findings": findings})
+        except Exception as exc:
+            self.data_ready.emit({"ok": False, "error": str(exc)})
+
+
+class TimelineDataLoader(QObject):
+    data_ready = Signal(dict)
+
+    def __init__(self, db_path: str, finding: dict, parent=None):
+        super().__init__(parent)
+        self.db_path = db_path
+        self.finding = finding
+
+    @Slot()
+    def load(self):
+        try:
+            from storage import SecurityStorage
+            storage = SecurityStorage(self.db_path)
+            
+            # Fetch events between first and last seen
+            first_seen = datetime.fromisoformat(str(self.finding["first_seen"]))
+            last_seen  = datetime.fromisoformat(str(self.finding["last_seen"]))
+            events = storage.get_auth_events_between(first_seen, last_seen)
+            
+            # Correlate
+            related_events = [
+                e for e in events
+                if e["source_ip"] == self.finding["source_ip"]
+                and e["username"] == self.finding["target_user"]
+            ]
+            
+            # Chronological order
+            related_events.sort(key=lambda e: str(e.get("timestamp", "")))
+            
+            self.data_ready.emit({"ok": True, "events": related_events})
+        except Exception as exc:
+            self.data_ready.emit({"ok": False, "error": str(exc)})
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # HELPERS
 # ─────────────────────────────────────────────────────────────────────────────
 
-def fmt_ts(raw) -> str:
-    """Format an ISO timestamp string for display."""
-    s = str(raw)
-    return s.replace("T", " ").split(".")[0]
+def _fmt_ts(raw) -> str:
+    """Normalize an ISO timestamp to a readable string."""
+    s = str(raw).replace("T", " ").split(".")[0]
+    return s
 
 
-def detail_row(label: str, value: str, value_color: str = TEXT_PRIMARY) -> QWidget:
-    """A label + value pair for the finding detail pane."""
-    w = QWidget()
-    w.setStyleSheet("background: transparent;")
-    layout = QHBoxLayout(w)
-    layout.setContentsMargins(0, 3, 0, 3)
-    layout.setSpacing(0)
-
-    lbl = QLabel(label)
-    lbl.setFixedWidth(140)
-    lbl.setStyleSheet(f"""
-        color: {TEXT_MUTED};
-        font-size: 11px;
-        letter-spacing: 0.3px;
-        background: transparent;
-    """)
-
-    val = QLabel(value)
-    val.setWordWrap(True)
-    val.setStyleSheet(f"""
-        color: {value_color};
-        font-size: 12px;
-        font-weight: 500;
-        background: transparent;
-    """)
-
-    layout.addWidget(lbl)
-    layout.addWidget(val, stretch=1)
-    return w
-
-
-def section_sep(title: str) -> QWidget:
-    """A labeled section separator."""
+def _detail_block(label: str, value: str) -> QWidget:
+    """Compact label + value block for the overview grid."""
     w = QWidget()
     w.setStyleSheet("background: transparent;")
     layout = QVBoxLayout(w)
-    layout.setContentsMargins(0, 16, 0, 8)
+    layout.setContentsMargins(0, 0, 0, 0)
+    layout.setSpacing(2)
+
+    lbl = QLabel(label.upper())
+    lbl.setStyleSheet(f"font-size: 9px; font-weight: 600; letter-spacing: 0.8px; color: {TEXT_MUTED};")
+    val = QLabel(str(value))
+    val.setStyleSheet(f"font-size: 13px; font-weight: 500; color: {TEXT_PRIMARY};")
+    
+    layout.addWidget(lbl)
+    layout.addWidget(val)
+    return w
+
+
+def _section_header(title: str) -> QWidget:
+    """Uppercase section label with a thin separator."""
+    w = QWidget()
+    w.setStyleSheet("background: transparent;")
+    layout = QVBoxLayout(w)
+    layout.setContentsMargins(0, 24, 0, 12)
     layout.setSpacing(4)
 
     lbl = QLabel(title.upper())
-    lbl.setStyleSheet(f"""
-        font-size: 9px;
-        font-weight: 600;
-        letter-spacing: 1.4px;
-        color: {TEXT_MUTED};
-        background: transparent;
-    """)
+    lbl.setStyleSheet(f"font-size: 9px; font-weight: 600; letter-spacing: 1.5px; color: {TEXT_MUTED};")
     layout.addWidget(lbl)
 
     sep = QFrame()
     sep.setFrameShape(QFrame.Shape.HLine)
     sep.setStyleSheet(f"color: {BORDER_SUBTLE};")
+    sep.setFixedHeight(1)
     layout.addWidget(sep)
-
     return w
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# EVENT DETAILS DIALOG
+# ─────────────────────────────────────────────────────────────────────────────
+
+class EventDetailsDialog(QDialog):
+    """Shows raw/complete details of a selected timeline event."""
+    def __init__(self, event: dict, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Event Details")
+        self.setMinimumWidth(500)
+        self.setStyleSheet(f"""
+            QDialog {{ background-color: {BG_SURFACE}; border: 1px solid {BORDER_SUBTLE}; }}
+        """)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(16)
+
+        hdr = QLabel("Event Details")
+        hdr.setStyleSheet(f"font-size: 14px; font-weight: 600; color: {TEXT_PRIMARY};")
+        layout.addWidget(hdr)
+
+        grid = QWidget()
+        grid_layout = QVBoxLayout(grid)
+        grid_layout.setContentsMargins(0, 0, 0, 0)
+        grid_layout.setSpacing(12)
+
+        fields = [
+            ("Timestamp", _fmt_ts(event.get("timestamp", ""))),
+            ("Status", event.get("status", "")),
+            ("Username", event.get("username", "")),
+            ("Source IP", event.get("source_ip", "")),
+            ("Source Port", str(event.get("source_port", ""))),
+            ("Hostname", event.get("hostname", "")),
+            ("Service", event.get("service", "")),
+            ("PID", str(event.get("pid", ""))),
+            ("Protocol", event.get("protocol", "")),
+            ("Invalid User", str(event.get("invalid_user", ""))),
+        ]
+
+        for label, value in fields:
+            row = QHBoxLayout()
+            lbl = QLabel(label)
+            lbl.setFixedWidth(100)
+            lbl.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 11px;")
+            val = QLabel(value)
+            val.setStyleSheet(f"color: {TEXT_PRIMARY}; font-size: 12px; font-weight: 500;")
+            
+            # Coloring status
+            if label == "Status":
+                val.setStyleSheet(f"color: {status_text_color(value)}; font-size: 12px; font-weight: 600;")
+            
+            row.addWidget(lbl)
+            row.addWidget(val, stretch=1)
+            grid_layout.addLayout(row)
+
+        layout.addWidget(grid)
+
+        # Raw log
+        raw_lbl = QLabel("Raw Log")
+        raw_lbl.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 11px;")
+        layout.addWidget(raw_lbl)
+
+        raw_val = QLabel(event.get("raw_log", ""))
+        raw_val.setWordWrap(True)
+        raw_val.setStyleSheet(f"""
+            color: {TEXT_SECONDARY};
+            font-size: 11px;
+            font-family: {FONT_MONO};
+            background-color: {BG_BASE};
+            border: 1px solid {BORDER_SUBTLE};
+            padding: 8px;
+        """)
+        layout.addWidget(raw_val)
+
+        btn = QPushButton("Close")
+        btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {BG_ELEVATED};
+                color: {TEXT_PRIMARY};
+                border: 1px solid {BORDER_DEFAULT};
+                padding: 6px 12px;
+                font-size: 11px;
+            }}
+            QPushButton:hover {{ background-color: {BG_OVERLAY}; }}
+        """)
+        btn.clicked.connect(self.accept)
+        
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+        btn_layout.addWidget(btn)
+        layout.addLayout(btn_layout)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -100,29 +237,26 @@ def section_sep(title: str) -> QWidget:
 
 class InvestigationView(QWidget):
     """
-    Investigation page.
-
-    Left: scrollable list of findings.
-    Right: finding detail + correlated incident timeline.
+    Professional incident investigation workspace.
+    Loads data via background threads to preserve responsiveness.
     """
 
     def __init__(self, db_path: str, parent=None):
         super().__init__(parent)
         self.db_path = db_path
-        self._storage = None
         self._findings: list[dict] = []
+        self._selected_finding_id: int | None = None
         self._selected_finding: dict | None = None
-
-        self._init_storage()
+        
+        self._load_thread: QThread | None = None
+        self._tl_load_thread: QThread | None = None
+        
         self._build_ui()
         self.refresh()
 
-    def _init_storage(self):
-        try:
-            from storage import SecurityStorage
-            self._storage = SecurityStorage(self.db_path)
-        except Exception:
-            self._storage = None
+        self._timer = QTimer(self)
+        self._timer.timeout.connect(self.refresh)
+        self._timer.start(REFRESH_INTERVAL_MS)
 
     # ── UI construction ────────────────────────────────────────────────────
 
@@ -142,8 +276,8 @@ class InvestigationView(QWidget):
 
         # ── Left: findings list ────────────────────────────────
         left = QWidget()
-        left.setMinimumWidth(270)
-        left.setMaximumWidth(380)
+        left.setMinimumWidth(280)
+        left.setMaximumWidth(400)
         left.setStyleSheet(f"background-color: {BG_SURFACE};")
         left_layout = QVBoxLayout(left)
         left_layout.setContentsMargins(0, 0, 0, 0)
@@ -157,20 +291,17 @@ class InvestigationView(QWidget):
         """)
         lh_layout = QHBoxLayout(list_header)
         lh_layout.setContentsMargins(16, 0, 16, 0)
+        
         lbl = QLabel("FINDINGS")
         lbl.setStyleSheet(f"""
-            font-size: 9px;
-            font-weight: 600;
-            letter-spacing: 1.4px;
-            color: {TEXT_MUTED};
-            background: transparent;
+            font-size: 9px; font-weight: 600; letter-spacing: 1.4px;
+            color: {TEXT_MUTED}; background: transparent;
         """)
         lh_layout.addWidget(lbl)
         lh_layout.addStretch()
+        
         self._list_count = QLabel("")
-        self._list_count.setStyleSheet(
-            f"color: {TEXT_MUTED}; font-size: 10px; background: transparent;"
-        )
+        self._list_count.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 10px; background: transparent;")
         lh_layout.addWidget(self._list_count)
         left_layout.addWidget(list_header)
 
@@ -182,258 +313,389 @@ class InvestigationView(QWidget):
                 outline: none;
             }}
             QListWidget::item {{
-                padding: 10px 16px;
+                padding: 12px 16px;
                 border-bottom: 1px solid {BORDER_SUBTLE};
                 color: {TEXT_SECONDARY};
             }}
             QListWidget::item:selected {{
                 background-color: {BG_OVERLAY};
                 color: {TEXT_PRIMARY};
-                border-left: 3px solid {TEXT_MUTED};
+                border-left: 3px solid {ACCENT};
             }}
             QListWidget::item:hover:!selected {{
                 background-color: {BG_ELEVATED};
                 color: {TEXT_PRIMARY};
             }}
         """)
-        self._findings_list.currentRowChanged.connect(self._on_finding_selected)
+        self._findings_list.currentRowChanged.connect(self._on_list_row_changed)
         left_layout.addWidget(self._findings_list)
 
         self._list_empty = QLabel("No findings recorded.")
         self._list_empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._list_empty.setStyleSheet(
-            f"color: {TEXT_MUTED}; font-size: 12px; background: {BG_SURFACE}; padding: 20px;"
-        )
+        self._list_empty.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 12px; background: {BG_SURFACE}; padding: 20px;")
         self._list_empty.hide()
         left_layout.addWidget(self._list_empty)
 
         splitter.addWidget(left)
 
-        # ── Right: detail pane ─────────────────────────────────
+        # ── Right: workspace pane ──────────────────────────────
         right = QWidget()
         right.setStyleSheet(f"background-color: {BG_BASE};")
         right_layout = QVBoxLayout(right)
         right_layout.setContentsMargins(0, 0, 0, 0)
         right_layout.setSpacing(0)
 
-        self._detail_scroll = QScrollArea()
-        self._detail_scroll.setWidgetResizable(True)
-        self._detail_scroll.setFrameShape(QFrame.Shape.NoFrame)
-        self._detail_scroll.setStyleSheet(f"background-color: {BG_BASE};")
+        self._ws_scroll = QScrollArea()
+        self._ws_scroll.setWidgetResizable(True)
+        self._ws_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self._ws_scroll.setStyleSheet(f"background-color: {BG_BASE};")
 
-        self._detail_content = QWidget()
-        self._detail_content.setStyleSheet(f"background-color: {BG_BASE};")
-        self._detail_layout = QVBoxLayout(self._detail_content)
-        self._detail_layout.setContentsMargins(28, 24, 28, 28)
-        self._detail_layout.setSpacing(4)
+        self._ws_content = QWidget()
+        self._ws_content.setStyleSheet(f"background-color: {BG_BASE};")
+        self._ws_layout = QVBoxLayout(self._ws_content)
+        self._ws_layout.setContentsMargins(40, 30, 40, 40)
+        self._ws_layout.setSpacing(0)
 
-        self._detail_scroll.setWidget(self._detail_content)
-        right_layout.addWidget(self._detail_scroll)
+        self._ws_scroll.setWidget(self._ws_content)
+        right_layout.addWidget(self._ws_scroll)
 
         splitter.addWidget(right)
-        splitter.setSizes([300, 900])
+        splitter.setSizes([320, 1000])
 
-        self._show_placeholder()
+        self._show_placeholder("Select a finding to begin investigation.")
 
-    def _show_placeholder(self):
-        self._clear_detail()
-        placeholder = QLabel("Select a finding to begin investigation.")
+    def _show_placeholder(self, msg: str):
+        self._clear_workspace()
+        placeholder = QLabel(msg)
         placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        placeholder.setStyleSheet(
-            f"color: {TEXT_MUTED}; font-size: 13px; background: transparent;"
-        )
-        self._detail_layout.addStretch()
-        self._detail_layout.addWidget(placeholder)
-        self._detail_layout.addStretch()
+        placeholder.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 13px; background: transparent;")
+        self._ws_layout.addStretch()
+        self._ws_layout.addWidget(placeholder)
+        self._ws_layout.addStretch()
 
-    def _clear_detail(self):
-        while self._detail_layout.count():
-            item = self._detail_layout.takeAt(0)
+    def _clear_workspace(self):
+        while self._ws_layout.count():
+            item = self._ws_layout.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
 
-    # ── Data loading ───────────────────────────────────────────────────────
+    # ── Background Data Loading ────────────────────────────────────────────
 
     def refresh(self):
-        if self._storage is None:
-            self._init_storage()
-            if self._storage is None:
-                return
         try:
-            self._findings = list(reversed(self._storage.get_findings()))
-        except Exception:
-            self._findings = []
+            if self._load_thread and self._load_thread.isRunning():
+                return
+        except RuntimeError:
+            self._load_thread = None
+        
+        self._load_thread = QThread(self)
+        self._loader = InvestigationFindingsLoader(self.db_path)
+        self._loader.moveToThread(self._load_thread)
+        
+        self._load_thread.started.connect(self._loader.load)
+        self._loader.data_ready.connect(self._on_findings_loaded)
+        self._load_thread.start()
 
-        self._populate_list()
+    @Slot(dict)
+    def _on_findings_loaded(self, data: dict):
+        if self._load_thread:
+            self._load_thread.quit()
+            self._load_thread.wait()
+            self._load_thread.deleteLater()
+            self._load_thread = None
+            
+        if hasattr(self, "_loader") and self._loader:
+            self._loader.deleteLater()
+            self._loader = None
 
-    def _populate_list(self):
-        self._findings_list.clear()
+        if not data.get("ok"):
+            self._list_empty.setText("Database error.")
+            self._list_empty.show()
+            self._findings_list.hide()
+            return
+
+        self._findings = data.get("findings", [])
+        self._update_list_ui()
+
+    def _update_list_ui(self):
+        # Update without breaking selection
         self._list_count.setText(str(len(self._findings)))
-
+        
         if not self._findings:
             self._findings_list.hide()
             self._list_empty.show()
-            self._show_placeholder()
+            self._show_placeholder("No security findings currently stored.")
+            self._selected_finding_id = None
+            self._selected_finding = None
             return
 
         self._findings_list.show()
         self._list_empty.hide()
 
-        for f in self._findings:
-            severity  = f.get("severity", "LOW")
-            attack    = f.get("attack_type", "Unknown")
-            target    = f.get("target_user", "—")
-            display   = f"{attack}\n{target}"
-            item = QListWidgetItem(display)
-            item.setData(Qt.ItemDataRole.UserRole, f.get("id", -1))
+        # Rebuild list keeping selection
+        self._findings_list.blockSignals(True)
+        self._findings_list.clear()
 
-            # Color severity in the list item via foreground
+        selected_idx = -1
+        for i, f in enumerate(self._findings):
+            f_id = f.get("id", -1)
+            severity = f.get("severity", "LOW")
+            attack = f.get("attack_type", "Unknown")
+            target = f.get("target_user", "—")
+            display = f"[{severity}] {attack}\n{target}"
+            
+            item = QListWidgetItem(display)
+            item.setData(Qt.ItemDataRole.UserRole, f_id)
             item.setForeground(QColor(severity_color(severity)))
             self._findings_list.addItem(item)
+            
+            if self._selected_finding_id == f_id:
+                selected_idx = i
+
+        if selected_idx != -1:
+            self._findings_list.setCurrentRow(selected_idx)
+            # Update workspace if details changed
+            if self._selected_finding != self._findings[selected_idx]:
+                self._selected_finding = self._findings[selected_idx]
+                self._render_workspace()
+        else:
+            # Finding was deleted, or no selection
+            if self._selected_finding_id is not None:
+                self._show_placeholder("The selected finding is no longer available.")
+            self._selected_finding_id = None
+            self._selected_finding = None
+
+        self._findings_list.blockSignals(False)
 
     def load_finding(self, finding_id: int):
-        """Called from outside (Dashboard / Alerts) to jump to a finding."""
-        self.refresh()
+        """Called externally to jump to a specific finding."""
+        self._selected_finding_id = finding_id
+        self.refresh()  # Force load, which will select it. Wait, async!
+        # If we already have findings, we can select it immediately.
         for i, f in enumerate(self._findings):
             if f.get("id") == finding_id:
                 self._findings_list.setCurrentRow(i)
-                break
+                return
 
-    # ── Selection ──────────────────────────────────────────────────────────
+    # ── Selection & Rendering ──────────────────────────────────────────────
 
-    def _on_finding_selected(self, row: int):
+    def _on_list_row_changed(self, row: int):
         if row < 0 or row >= len(self._findings):
             return
         finding = self._findings[row]
+        self._selected_finding_id = finding.get("id", -1)
         self._selected_finding = finding
-        self._render_detail(finding)
+        self._render_workspace()
 
-    def _render_detail(self, finding: dict):
-        self._clear_detail()
+    def _render_workspace(self):
+        self._clear_workspace()
+        f = self._selected_finding
+        if not f:
+            return
 
-        severity   = finding.get("severity", "LOW")
-        sev_color  = severity_color(severity)
-        attack     = finding.get("attack_type", "Unknown")
+        severity = f.get("severity", "LOW")
+        sev_color = severity_color(severity)
 
-        # ── Finding header ─────────────────────────────────────
+        # ── 1. Finding Header ──────────────────────────────────
         hdr = QWidget()
-        hdr.setStyleSheet(f"""
-            background-color: {BG_SURFACE};
-            border-bottom: 1px solid {BORDER_SUBTLE};
-            border-left: 3px solid {sev_color};
-        """)
+        hdr.setStyleSheet("background: transparent;")
         hdr_layout = QVBoxLayout(hdr)
-        hdr_layout.setContentsMargins(18, 14, 18, 14)
+        hdr_layout.setContentsMargins(0, 0, 0, 24)
         hdr_layout.setSpacing(4)
 
-        sev_lbl = QLabel(severity)
-        sev_lbl.setStyleSheet(f"""
-            color: {sev_color};
-            font-size: 10px;
-            font-weight: 700;
-            letter-spacing: 1px;
-            background: transparent;
-        """)
+        top_row = QHBoxLayout()
+        id_lbl = QLabel(f"FINDING #{f.get('id', '—')}")
+        id_lbl.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 10px; font-weight: 600; letter-spacing: 1px;")
+        top_row.addWidget(id_lbl)
+        top_row.addStretch()
+        hdr_layout.addLayout(top_row)
 
-        attack_lbl = QLabel(attack)
-        attack_lbl.setStyleSheet(f"""
-            color: {TEXT_PRIMARY};
-            font-size: 17px;
-            font-weight: 700;
-            background: transparent;
-        """)
-
-        id_lbl = QLabel(f"Finding ID: {finding.get('id', '—')}")
-        id_lbl.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 10px; background: transparent;")
-
-        hdr_layout.addWidget(sev_lbl)
+        attack_lbl = QLabel(f.get("attack_type", "Unknown"))
+        attack_lbl.setStyleSheet(f"color: {TEXT_PRIMARY}; font-size: 24px; font-weight: 600; letter-spacing: -0.5px;")
         hdr_layout.addWidget(attack_lbl)
-        hdr_layout.addWidget(id_lbl)
+        
+        sev_lbl = QLabel(severity)
+        sev_lbl.setStyleSheet(f"color: {sev_color}; font-size: 11px; font-weight: 700; letter-spacing: 1px;")
+        hdr_layout.addWidget(sev_lbl)
 
-        self._detail_layout.addWidget(hdr)
+        self._ws_layout.addWidget(hdr)
 
-        # ── Finding details ────────────────────────────────────
-        self._detail_layout.addWidget(section_sep("Source & Target"))
-        self._detail_layout.addWidget(detail_row("Source IP",      finding.get("source_ip", "—")))
-        self._detail_layout.addWidget(detail_row("Target User",    finding.get("target_user", "—")))
-        self._detail_layout.addWidget(detail_row("IP Class",       finding.get("ip_classification", "—")))
-        self._detail_layout.addWidget(detail_row("Service",        finding.get("service", "—")))
+        # ── 2. Source → Target ─────────────────────────────────
+        flow = QWidget()
+        flow.setStyleSheet(f"background-color: transparent;")
+        flow_layout = QHBoxLayout(flow)
+        flow_layout.setContentsMargins(0, 0, 0, 0)
+        flow_layout.setSpacing(40)
 
-        self._detail_layout.addWidget(section_sep("Activity"))
-        self._detail_layout.addWidget(detail_row("Attempts",       str(finding.get("attempts", 0))))
-        self._detail_layout.addWidget(detail_row("Events",         str(finding.get("event_count", 0))))
-        self._detail_layout.addWidget(detail_row("Failed",         str(finding.get("failed_attempts", 0))))
-        self._detail_layout.addWidget(detail_row("Successful",     str(finding.get("successful_attempts", 0))))
-        self._detail_layout.addWidget(detail_row("Duration",       f"{finding.get('duration_seconds', 0):.1f} seconds"))
-        self._detail_layout.addWidget(detail_row("First Seen",     fmt_ts(finding.get("first_seen", "—"))))
-        self._detail_layout.addWidget(detail_row("Last Seen",      fmt_ts(finding.get("last_seen",  "—"))))
+        # Source
+        src_box = QVBoxLayout()
+        src_lbl = QLabel("SOURCE")
+        src_lbl.setStyleSheet(f"font-size: 9px; font-weight: 600; color: {TEXT_MUTED}; letter-spacing: 1px;")
+        src_val = QLabel(f.get("source_ip", "—"))
+        src_val.setStyleSheet(f"font-size: 15px; font-weight: 500; color: {TEXT_PRIMARY};")
+        src_class = QLabel(f.get("ip_classification", ""))
+        src_class.setStyleSheet(f"font-size: 10px; color: {TEXT_SECONDARY};")
+        src_box.addWidget(src_lbl)
+        src_box.addWidget(src_val)
+        if src_class.text() and src_class.text().lower() not in ("—", "unknown"):
+            src_box.addWidget(src_class)
+        flow_layout.addLayout(src_box)
 
-        # ── Incident timeline ──────────────────────────────────
-        self._detail_layout.addWidget(section_sep("Incident Timeline"))
+        # Arrow
+        arrow = QLabel("─────→")
+        arrow.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 14px;")
+        arrow.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+        flow_layout.addWidget(arrow)
 
-        timeline = self._build_timeline(finding)
-        self._detail_layout.addWidget(timeline)
+        # Target
+        tgt_box = QVBoxLayout()
+        tgt_lbl = QLabel("TARGET")
+        tgt_lbl.setStyleSheet(f"font-size: 9px; font-weight: 600; color: {TEXT_MUTED}; letter-spacing: 1px;")
+        tgt_val = QLabel(f.get("target_user", "—"))
+        tgt_val.setStyleSheet(f"font-size: 15px; font-weight: 500; color: {TEXT_PRIMARY};")
+        tgt_svc = QLabel(f.get("service", ""))
+        tgt_svc.setStyleSheet(f"font-size: 10px; color: {TEXT_SECONDARY};")
+        tgt_box.addWidget(tgt_lbl)
+        tgt_box.addWidget(tgt_val)
+        if tgt_svc.text() and tgt_svc.text().lower() not in ("—", "unknown"):
+            tgt_box.addWidget(tgt_svc)
+        flow_layout.addLayout(tgt_box)
+        flow_layout.addStretch()
 
-        # ── Recommendation ─────────────────────────────────────
-        self._detail_layout.addWidget(section_sep("Recommendation"))
+        self._ws_layout.addWidget(flow)
 
-        rec_text = finding.get("recommendation", "No recommendation available.")
+        # ── 3. Incident Overview Grid ──────────────────────────
+        self._ws_layout.addWidget(_section_header("Incident Overview"))
+        
+        grid = QWidget()
+        grid.setStyleSheet("background: transparent;")
+        grid_layout = QHBoxLayout(grid)
+        grid_layout.setContentsMargins(0, 0, 0, 0)
+        grid_layout.setSpacing(30)
+
+        dur = f.get("duration_seconds", 0)
+        dur_str = f"{dur:.0f}s" if dur < 3600 else f"{dur/3600:.1f}h"
+
+        grid_layout.addWidget(_detail_block("Attempts", f.get("attempts", 0)))
+        grid_layout.addWidget(_detail_block("Event Count", f.get("event_count", 0)))
+        grid_layout.addWidget(_detail_block("Failed", f.get("failed_attempts", 0)))
+        grid_layout.addWidget(_detail_block("Successful", f.get("successful_attempts", 0)))
+        grid_layout.addWidget(_detail_block("Duration", dur_str))
+        grid_layout.addStretch()
+        self._ws_layout.addWidget(grid)
+
+        # Timestamps line
+        ts_row = QWidget()
+        ts_row.setStyleSheet("background: transparent;")
+        ts_layout = QHBoxLayout(ts_row)
+        ts_layout.setContentsMargins(0, 16, 0, 0)
+        ts_layout.setSpacing(20)
+        
+        ts_layout.addWidget(_detail_block("First Seen", _fmt_ts(f.get("first_seen", "—"))))
+        ts_layout.addWidget(_detail_block("Last Seen", _fmt_ts(f.get("last_seen", "—"))))
+        ts_layout.addStretch()
+        self._ws_layout.addWidget(ts_row)
+
+        # ── 4. Incident Timeline (Async Load) ──────────────────
+        self._ws_layout.addWidget(_section_header("Correlated Event Timeline"))
+        
+        self._timeline_container = QWidget()
+        self._timeline_container.setStyleSheet("background: transparent;")
+        self._tl_layout = QVBoxLayout(self._timeline_container)
+        self._tl_layout.setContentsMargins(0, 0, 0, 0)
+        
+        loading_lbl = QLabel("Loading timeline...")
+        loading_lbl.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 11px;")
+        self._tl_layout.addWidget(loading_lbl)
+        
+        self._ws_layout.addWidget(self._timeline_container)
+
+        self._load_timeline(f)
+
+        # ── 5. Investigation Summary & Recommendation ──────────
+        self._ws_layout.addWidget(_section_header("Investigation Summary"))
+        
+        events_n = f.get("event_count", 0)
+        failed_n = f.get("failed_attempts", 0)
+        success_n = f.get("successful_attempts", 0)
+        summary_text = (
+            f"The backend correlated {events_n} events over {dur_str} matching this source and target. "
+            f"Of these, {failed_n} were failed attempts and {success_n} were successful."
+        )
+        
+        summ_lbl = QLabel(summary_text)
+        summ_lbl.setWordWrap(True)
+        summ_lbl.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: 12px; line-height: 1.5;")
+        self._ws_layout.addWidget(summ_lbl)
+
+        self._ws_layout.addWidget(_section_header("Recommendation"))
+        
         rec_box = QWidget()
-        rec_box.setStyleSheet(f"""
-            background-color: {BG_SURFACE};
-            border: 1px solid {BORDER_SUBTLE};
-            border-left: 3px solid {sev_color};
-        """)
+        rec_box.setStyleSheet(f"background-color: {BG_SURFACE}; border: 1px solid {BORDER_SUBTLE}; border-left: 3px solid {sev_color};")
         rec_layout = QVBoxLayout(rec_box)
-        rec_layout.setContentsMargins(16, 10, 16, 10)
-
-        rec_lbl = QLabel(rec_text)
+        rec_layout.setContentsMargins(16, 12, 16, 12)
+        rec_lbl = QLabel(f.get("recommendation", "No recommendation available."))
         rec_lbl.setWordWrap(True)
-        rec_lbl.setStyleSheet(f"""
-            color: {TEXT_SECONDARY};
-            font-size: 12px;
-            line-height: 1.5;
-            background: transparent;
-        """)
+        rec_lbl.setStyleSheet(f"color: {TEXT_PRIMARY}; font-size: 12px; line-height: 1.5;")
         rec_layout.addWidget(rec_lbl)
-        self._detail_layout.addWidget(rec_box)
+        self._ws_layout.addWidget(rec_box)
 
-        self._detail_layout.addStretch()
+        self._ws_layout.addStretch()
 
-    def _build_timeline(self, finding: dict) -> QWidget:
-        """Build the correlated event timeline table."""
-        container = QWidget()
-        container.setStyleSheet("background: transparent;")
-        layout = QVBoxLayout(container)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(6)
+    # ── Timeline Loading ───────────────────────────────────────────────────
 
-        # Query related events from storage
-        related_events = []
-        if self._storage:
-            try:
-                first_seen = datetime.fromisoformat(str(finding["first_seen"]))
-                last_seen  = datetime.fromisoformat(str(finding["last_seen"]))
-                events = self._storage.get_auth_events_between(first_seen, last_seen)
-                related_events = [
-                    e for e in events
-                    if e["source_ip"] == finding["source_ip"]
-                    and e["username"]  == finding["target_user"]
-                ]
-            except Exception:
-                pass
+    def _load_timeline(self, finding: dict):
+        try:
+            if self._tl_load_thread and self._tl_load_thread.isRunning():
+                self._tl_load_thread.quit()
+                self._tl_load_thread.wait()
+                self._tl_load_thread.deleteLater()
+                self._tl_load_thread = None
+        except RuntimeError:
+            self._tl_load_thread = None
 
-        if not related_events:
-            note = QLabel("No related events found in the time window.")
-            note.setStyleSheet(
-                f"color: {TEXT_MUTED}; font-size: 12px; background: transparent;"
-            )
-            layout.addWidget(note)
-            return container
+        self._tl_load_thread = QThread(self)
+        self._tl_loader = TimelineDataLoader(self.db_path, finding)
+        self._tl_loader.moveToThread(self._tl_load_thread)
 
-        # Timeline table
-        headers = ["Timestamp", "Status", "Username", "Source IP", "Service"]
-        table = QTableWidget(len(related_events), len(headers))
+        self._tl_load_thread.started.connect(self._tl_loader.load)
+        self._tl_loader.data_ready.connect(self._on_timeline_loaded)
+        self._tl_load_thread.start()
+
+    @Slot(dict)
+    def _on_timeline_loaded(self, data: dict):
+        if self._tl_load_thread:
+            self._tl_load_thread.quit()
+            self._tl_load_thread.wait()
+            self._tl_load_thread.deleteLater()
+            self._tl_load_thread = None
+            
+        if hasattr(self, "_tl_loader") and self._tl_loader:
+            self._tl_loader.deleteLater()
+            self._tl_loader = None
+
+        # Clear loading label
+        while self._tl_layout.count():
+            item = self._tl_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        if not data.get("ok"):
+            err = QLabel("NO CORRELATED EVENTS")
+            err.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 11px;")
+            self._tl_layout.addWidget(err)
+            return
+
+        events = data.get("events", [])
+        if not events:
+            empty = QLabel("NO CORRELATED EVENTS\n\nThe finding exists, but no matching authentication events are currently available for this investigation window.")
+            empty.setWordWrap(True)
+            empty.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 12px; line-height: 1.5;")
+            self._tl_layout.addWidget(empty)
+            return
+
+        headers = ["Time", "Status", "Username", "Source IP", "Service"]
+        table = QTableWidget(len(events), len(headers))
         table.setHorizontalHeaderLabels(headers)
         table.verticalHeader().setVisible(False)
         table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
@@ -448,10 +710,13 @@ class InvestigationView(QWidget):
         hh.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
         hh.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
 
-        for row, ev in enumerate(related_events):
+        # Keep a reference to raw events for dialog
+        self._current_timeline_events = events
+
+        for row, ev in enumerate(events):
             status = ev.get("status", "")
             cells = [
-                fmt_ts(ev.get("timestamp", "")),
+                _fmt_ts(ev.get("timestamp", "")),
                 status,
                 ev.get("username", ""),
                 ev.get("source_ip", ""),
@@ -466,21 +731,22 @@ class InvestigationView(QWidget):
                 table.setItem(row, col, item)
 
         table.resizeRowsToContents()
-        table.setMaximumHeight(min(40 + len(related_events) * 30, 400))
-        layout.addWidget(table)
+        table.setMaximumHeight(min(40 + len(events) * 30, 400))
+        table.cellDoubleClicked.connect(self._on_event_double_clicked)
+        
+        # Also support single click if desired, but double click or enter is standard for detail
+        self._tl_layout.addWidget(table)
+        
+        hint = QLabel("Double-click an event to view full details and raw log.")
+        hint.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 10px; margin-top: 4px;")
+        self._tl_layout.addWidget(hint)
 
-        # Timeline summary
-        n_failed = sum(1 for e in related_events if e.get("status") == "FAILED")
-        n_success = sum(1 for e in related_events
-                        if e.get("status") in ("SUCCESS", "ACCEPTED"))
-        summary = QLabel(
-            f"Events: {len(related_events)}   "
-            f"Failed: {n_failed}   "
-            f"Successful: {n_success}"
-        )
-        summary.setStyleSheet(
-            f"color: {TEXT_MUTED}; font-size: 11px; background: transparent;"
-        )
-        layout.addWidget(summary)
-
-        return container
+    def _on_event_double_clicked(self, row: int, col: int):
+        if not hasattr(self, "_current_timeline_events"):
+            return
+        if row < 0 or row >= len(self._current_timeline_events):
+            return
+        
+        event = self._current_timeline_events[row]
+        dlg = EventDetailsDialog(event, self)
+        dlg.exec()

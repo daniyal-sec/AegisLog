@@ -92,17 +92,17 @@ class Sidebar(QWidget):
     """Left navigation sidebar."""
 
     NAV_ITEMS = [
-        ("Dashboard",         0),
-        ("Live Monitor",      1),
-        ("Security Alerts",   2),
-        ("Investigation",     3),
-        ("Reports",           4),
-        ("Settings",          5),
+        ("■   Dashboard",       0),
+        ("●   Live Monitor",    1),
+        ("▲   Security Alerts", 2),
+        ("◆   Investigation",   3),
+        ("≡   Reports",         4),
+        ("⚙   Settings",        5),
     ]
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setFixedWidth(210)
+        self.setFixedWidth(220)
         self.setObjectName("Sidebar")
         self.setStyleSheet(f"""
             #Sidebar {{
@@ -123,35 +123,47 @@ class Sidebar(QWidget):
 
         # ── Brand block ────────────────────────────────────────
         brand = QWidget()
-        brand.setFixedHeight(64)
+        brand.setFixedHeight(80)
         brand.setStyleSheet(f"""
             background-color: {BG_SURFACE};
             border-bottom: 1px solid {BORDER_SUBTLE};
         """)
-        brand_layout = QVBoxLayout(brand)
+        brand_layout = QHBoxLayout(brand)
         brand_layout.setContentsMargins(20, 0, 16, 0)
-        brand_layout.setSpacing(1)
+        brand_layout.setSpacing(12)
+
+        from gui.launch_view import BrandMark
+        mark = BrandMark(32)
+
+        text_layout = QVBoxLayout()
+        text_layout.setContentsMargins(0, 0, 0, 0)
+        text_layout.setSpacing(2)
+        text_layout.setAlignment(Qt.AlignmentFlag.AlignVCenter)
 
         name_label = QLabel("AEGISLOG")
         name_label.setStyleSheet(f"""
             color: {TEXT_PRIMARY};
-            font-size: 14px;
-            font-weight: 700;
-            letter-spacing: 2px;
+            font-size: 15px;
+            font-weight: 800;
+            letter-spacing: 3px;
             background: transparent;
         """)
 
-        tagline_label = QLabel("Security Investigation")
+        tagline_label = QLabel("SECURITY INVESTIGATION")
         tagline_label.setStyleSheet(f"""
             color: {TEXT_MUTED};
-            font-size: 10px;
-            letter-spacing: 0.5px;
+            font-size: 7px;
+            font-weight: 600;
+            letter-spacing: 1.5px;
             background: transparent;
         """)
 
-        brand_layout.addWidget(name_label)
-        brand_layout.addWidget(tagline_label)
-        brand_layout.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+        text_layout.addWidget(name_label)
+        text_layout.addWidget(tagline_label)
+
+        brand_layout.addWidget(mark)
+        brand_layout.addLayout(text_layout)
+        brand_layout.addStretch()
         layout.addWidget(brand)
 
         # ── Section label ──────────────────────────────────────
@@ -246,12 +258,12 @@ class MonitoringStatusWidget(QWidget):
                 background: transparent;
             """)
             self._label.setStyleSheet(f"""
-                color: {STATUS_ACTIVE};
+                color: {TEXT_PRIMARY};
                 font-size: 11px;
-                font-weight: 500;
+                font-weight: 600;
                 background: transparent;
             """)
-            self._label.setText("Monitoring Active")
+            self._label.setText("MONITOR ACTIVE")
         else:
             self._dot.setStyleSheet(f"""
                 color: {STATUS_IDLE};
@@ -263,7 +275,7 @@ class MonitoringStatusWidget(QWidget):
                 font-size: 11px;
                 background: transparent;
             """)
-            self._label.setText("Monitor Idle")
+            self._label.setText("MONITOR IDLE")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -373,12 +385,12 @@ class StatusPill(QWidget):
 # ─────────────────────────────────────────────────────────────────────────────
 
 PAGE_TITLES = [
-    "Dashboard",
-    "Live Monitor",
-    "Security Alerts",
-    "Investigation",
-    "Reports",
-    "Settings",
+    "DASHBOARD",
+    "LIVE MONITOR",
+    "SECURITY ALERTS",
+    "INVESTIGATION",
+    "REPORTS",
+    "SETTINGS",
 ]
 
 
@@ -402,22 +414,29 @@ class MainWindow(QMainWindow):
         self._header.set_section_title("Dashboard")
 
     def _build_ui(self):
-        # Root container
-        root = QWidget()
-        self.setCentralWidget(root)
+        # We use a master stack to switch between LaunchView and the Workspace.
+        self._master_stack = QStackedWidget()
+        self.setCentralWidget(self._master_stack)
 
-        root_layout = QHBoxLayout(root)
-        root_layout.setContentsMargins(0, 0, 0, 0)
-        root_layout.setSpacing(0)
+        from gui.launch_view import LaunchView
+        self._launch_view = LaunchView(self.db_path)
+        self._launch_view.enter_workspace.connect(self._enter_workspace)
+        self._master_stack.addWidget(self._launch_view)
+
+        # Workspace container
+        self._workspace = QWidget()
+        workspace_layout = QHBoxLayout(self._workspace)
+        workspace_layout.setContentsMargins(0, 0, 0, 0)
+        workspace_layout.setSpacing(0)
 
         # ── Sidebar ────────────────────────────────────────────
         self._sidebar = Sidebar()
         self._sidebar.set_navigate_callback(self._on_navigate)
-        root_layout.addWidget(self._sidebar)
+        workspace_layout.addWidget(self._sidebar)
 
         # ── Right area (header + content) ──────────────────────
         right = QWidget()
-        right.setStyleSheet(f"background-color: {BG_BASE};")
+        right.setStyleSheet("background: transparent;")
         right_layout = QVBoxLayout(right)
         right_layout.setContentsMargins(0, 0, 0, 0)
         right_layout.setSpacing(0)
@@ -427,13 +446,20 @@ class MainWindow(QMainWindow):
 
         # Pages
         self._stack = QStackedWidget()
-        self._stack.setStyleSheet(f"background-color: {BG_BASE};")
+        self._stack.setStyleSheet("background: transparent;")
         right_layout.addWidget(self._stack)
 
         # Import and create page widgets (deferred to avoid circular imports)
         self._create_pages()
 
-        root_layout.addWidget(right)
+        workspace_layout.addWidget(right)
+        self._master_stack.addWidget(self._workspace)
+        
+        # Start on Launch View
+        self._master_stack.setCurrentWidget(self._launch_view)
+
+    def _enter_workspace(self):
+        self._master_stack.setCurrentWidget(self._workspace)
 
     def _create_pages(self):
         """Instantiate all page widgets and add to the stack."""

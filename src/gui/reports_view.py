@@ -80,10 +80,10 @@ class ReportsView(QWidget):
 
         lbl = QLabel("REPORTS")
         lbl.setStyleSheet(f"""
-            font-size: 9px;
+            font-size: 11px;
             font-weight: 600;
-            letter-spacing: 1.4px;
-            color: {TEXT_MUTED};
+            letter-spacing: 1.5px;
+            color: {TEXT_PRIMARY};
             background: transparent;
         """)
         lh_layout.addWidget(lbl)

@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/banner/github-banner.png" alt="AegisLog Banner" width="100%">
+  <img src="assets/banner/github-banner.jpeg" alt="AegisLog Banner" width="100%">
 </p>
 
 <h1 align="center">🛡️ AegisLog</h1>

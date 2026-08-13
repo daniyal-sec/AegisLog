@@ -118,10 +118,16 @@ class FindingPanel(QWidget):
         self._is_new = is_new
 
         self.setObjectName("FindingPanel")
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setStyleSheet(f"""
             #FindingPanel {{
                 background-color: {BG_SURFACE};
                 border: 1px solid {BORDER_SUBTLE};
+                border-left: 3px solid {self._sev_color};
+            }}
+            #FindingPanel:hover {{
+                background-color: {BG_ELEVATED};
+                border-color: {BORDER_DEFAULT};
                 border-left: 3px solid {self._sev_color};
             }}
         """)
@@ -180,11 +186,15 @@ class FindingPanel(QWidget):
                 padding: 0px 14px;
                 font-size: 11px;
                 font-family: {FONT_FAMILY};
+                font-weight: 500;
             }}
             QPushButton:hover {{
-                color: {TEXT_PRIMARY};
-                border-color: {TEXT_MUTED};
+                color: {ACCENT};
+                border-color: {ACCENT};
                 background: {BG_OVERLAY};
+            }}
+            QPushButton:pressed {{
+                background: {BG_SURFACE};
             }}
         """)
         inv_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -250,12 +260,12 @@ class FindingPanel(QWidget):
             col.setContentsMargins(0 if i == 0 else 0, 0, 20, 0)
 
             val_lbl = QLabel()
-            val_lbl.setStyleSheet(f"font-size: 20px; font-weight: 700; color: {TEXT_PRIMARY}; background: transparent;")
+            val_lbl.setStyleSheet(f"font-size: 20px; font-weight: 700; color: {TEXT_PRIMARY}; background: transparent; letter-spacing: 0.5px;")
             col.addWidget(val_lbl)
             self._metric_lbls[lbl_text] = val_lbl
 
             name_lbl = QLabel(lbl_text)
-            name_lbl.setStyleSheet(f"font-size: 9px; font-weight: 600; letter-spacing: 1px; color: {TEXT_MUTED}; background: transparent;")
+            name_lbl.setStyleSheet(f"font-size: 9px; font-weight: 600; letter-spacing: 1.5px; color: {TEXT_MUTED}; background: transparent;")
             col.addWidget(name_lbl)
             metrics_row.addLayout(col)
 
@@ -296,7 +306,7 @@ class FindingPanel(QWidget):
             self._sev_color = severity_color(self._severity)
             self._sev_lbl.setText(self._severity)
             self._sev_lbl.setStyleSheet(f"color: {self._sev_color}; font-size: 10px; font-weight: 700; letter-spacing: 1.2px; background: transparent;")
-            self.setStyleSheet(f"#FindingPanel {{ background-color: {BG_SURFACE}; border: 1px solid {BORDER_SUBTLE}; border-left: 3px solid {self._sev_color}; }}")
+            self.setStyleSheet(f"#FindingPanel {{ background-color: {BG_SURFACE}; border: 1px solid {BORDER_SUBTLE}; border-left: 3px solid {self._sev_color}; }} #FindingPanel:hover {{ background-color: {BG_ELEVATED}; border-color: {BORDER_DEFAULT}; border-left: 3px solid {self._sev_color}; }}")
 
         # Source / Target
         self._src_val_lbl.setText(finding.get("source_ip", "—"))

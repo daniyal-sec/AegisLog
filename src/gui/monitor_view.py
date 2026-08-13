@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QFrame, QSizePolicy,
     QHeaderView, QScrollArea,
 )
-from PySide6.QtCore import Qt, QThread, QObject, Signal, Slot
+from PySide6.QtCore import Qt, QThread, QObject, Signal, Slot,  QTimer
 from PySide6.QtGui import QColor, QFont
 
 from gui.styles import (
@@ -373,7 +373,7 @@ class MonitorView(QWidget):
         left_layout.setContentsMargins(24, 20, 12, 20)
         left_layout.setSpacing(12)
 
-        event_hdr = self._section_label("Authentication Event Stream")
+        event_hdr = self._build_section_header("Authentication Event Stream", "")
         left_layout.addWidget(event_hdr)
 
         self._events_table = self._build_events_table()
@@ -403,7 +403,7 @@ class MonitorView(QWidget):
         right_layout.setContentsMargins(12, 20, 20, 20)
         right_layout.setSpacing(10)
 
-        alerts_hdr = self._section_label("Live Security Alerts")
+        alerts_hdr = self._build_section_header("Live Security Alerts", "")
         right_layout.addWidget(alerts_hdr)
 
         self._alerts_scroll = QScrollArea()
@@ -442,18 +442,35 @@ class MonitorView(QWidget):
         self._msg_bar.hide()
         layout.addWidget(self._msg_bar)
 
-    def _section_label(self, text: str) -> QLabel:
-        lbl = QLabel(text.upper())
-        lbl.setStyleSheet(f"""
-            font-size: 9px;
+    def _build_section_header(self, title: str, meta: str) -> QWidget:
+        container = QWidget()
+        container.setStyleSheet("background: transparent;")
+        container.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        outer = QVBoxLayout(container)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 6)
+
+        title_lbl = QLabel(title.upper())
+        title_lbl.setStyleSheet(f"""
+            font-size: 11px;
             font-weight: 600;
-            letter-spacing: 1.4px;
-            color: {TEXT_MUTED};
+            letter-spacing: 1.5px;
+            color: {TEXT_PRIMARY};
             background: transparent;
-            border-bottom: 1px solid {BORDER_SUBTLE};
-            padding-bottom: 8px;
         """)
-        return lbl
+        row.addWidget(title_lbl)
+        row.addStretch()
+
+        outer.addLayout(row)
+
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setStyleSheet(f"color: {BORDER_SUBTLE};")
+        outer.addWidget(sep)
+        return container
 
     def _build_events_table(self) -> QTableWidget:
         headers = ["Time", "Rec#", "Event ID", "Status", "Username", "Source IP", "Service"]
@@ -594,6 +611,21 @@ class MonitorView(QWidget):
 
         if self._events_empty.isVisible():
             self._events_empty.hide()
+
+        # Brief row highlight
+        for col in range(self._events_table.columnCount()):
+            item = self._events_table.item(row, col)
+            if item:
+                item.setBackground(QColor(BG_OVERLAY))
+
+        def clear_highlight():
+            if self._events_table.rowCount() > row:
+                for col in range(self._events_table.columnCount()):
+                    item = self._events_table.item(row, col)
+                    if item:
+                        item.setBackground(QColor("transparent"))
+        
+        QTimer.singleShot(800, clear_highlight)
 
     @Slot(dict)
     def _on_finding(self, finding: dict):

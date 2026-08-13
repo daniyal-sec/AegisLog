@@ -95,7 +95,7 @@ QWidget {{
 }}
 
 QMainWindow {{
-    background-color: {BG_BASE};
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #0F0F11, stop:1 #060607);
 }}
 
 /* ── Scroll bars ──────────────────────────────────────────────── */
@@ -252,8 +252,11 @@ QTableWidget::item {{
     border: none;
     color: {TEXT_PRIMARY};
 }}
-QTableWidget::item:selected {{
+QTableWidget::item:hover {{
     background-color: {BG_OVERLAY};
+}}
+QTableWidget::item:selected {{
+    background-color: {BORDER_SUBTLE};
     color: {TEXT_PRIMARY};
 }}
 QHeaderView::section {{

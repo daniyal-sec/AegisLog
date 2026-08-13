@@ -123,10 +123,10 @@ def _section_header(title: str) -> QWidget:
     w.setStyleSheet("background: transparent;")
     layout = QVBoxLayout(w)
     layout.setContentsMargins(0, 24, 0, 12)
-    layout.setSpacing(4)
+    layout.setSpacing(6)
 
     lbl = QLabel(title.upper())
-    lbl.setStyleSheet(f"font-size: 9px; font-weight: 600; letter-spacing: 1.5px; color: {TEXT_MUTED};")
+    lbl.setStyleSheet(f"font-size: 11px; font-weight: 600; letter-spacing: 1.5px; color: {TEXT_PRIMARY};")
     layout.addWidget(lbl)
 
     sep = QFrame()
@@ -628,15 +628,20 @@ class InvestigationView(QWidget):
         summ_lbl.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: 12px; line-height: 1.5;")
         self._ws_layout.addWidget(summ_lbl)
 
-        self._ws_layout.addWidget(_section_header("Recommendation"))
+        self._ws_layout.addWidget(_section_header("Analyst Recommendation"))
         
         rec_box = QWidget()
-        rec_box.setStyleSheet(f"background-color: {BG_SURFACE}; border: 1px solid {BORDER_SUBTLE}; border-left: 3px solid {sev_color};")
+        rec_box.setStyleSheet(f"""
+            background-color: {BG_SURFACE};
+            border: 1px solid {BORDER_SUBTLE};
+            border-left: 3px solid {sev_color};
+        """)
         rec_layout = QVBoxLayout(rec_box)
-        rec_layout.setContentsMargins(16, 12, 16, 12)
+        rec_layout.setContentsMargins(20, 16, 20, 16)
+        
         rec_lbl = QLabel(f.get("recommendation", "No recommendation available."))
         rec_lbl.setWordWrap(True)
-        rec_lbl.setStyleSheet(f"color: {TEXT_PRIMARY}; font-size: 12px; line-height: 1.5;")
+        rec_lbl.setStyleSheet(f"color: {TEXT_PRIMARY}; font-size: 13px; font-weight: 500; line-height: 1.6;")
         rec_layout.addWidget(rec_lbl)
         self._ws_layout.addWidget(rec_box)
 

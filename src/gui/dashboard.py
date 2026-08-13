@@ -156,7 +156,7 @@ class StatCard(QWidget):
         # Primary value
         self._value_label = QLabel("—")
         self._value_label.setStyleSheet(f"""
-            font-size: 28px;
+            font-size: 24px;
             font-weight: 700;
             color: {value_color};
             background: transparent;
@@ -214,13 +214,20 @@ class SectionHeader(QWidget):
 
         self._title_lbl = QLabel(title.upper())
         self._title_lbl.setStyleSheet(f"""
-            font-size: 9px;
+            font-size: 11px;
             font-weight: 600;
             letter-spacing: 1.5px;
-            color: {TEXT_MUTED};
+            color: {TEXT_PRIMARY};
             background: transparent;
         """)
         row.addWidget(self._title_lbl)
+        
+        # Add a subtle vertical separator if there is meta
+        self._sep_lbl = QLabel(" | ")
+        self._sep_lbl.setStyleSheet(f"color: {BORDER_SUBTLE}; background: transparent;")
+        self._sep_lbl.hide()
+        row.addWidget(self._sep_lbl)
+        
         row.addStretch()
 
         self._meta_lbl = QLabel("")
@@ -240,6 +247,10 @@ class SectionHeader(QWidget):
 
     def set_meta(self, text: str):
         self._meta_lbl.setText(text)
+        if text:
+            self._sep_lbl.show()
+        else:
+            self._sep_lbl.hide()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -261,10 +272,17 @@ class EmptyStateWidget(QWidget):
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.setSpacing(4)
 
+        # Add abstract subtle icon
+        icon = QLabel("⊘")
+        icon.setStyleSheet(f"color: {BORDER_SUBTLE}; font-size: 24px; background: transparent;")
+        icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(icon)
+
         msg = QLabel(message)
         msg.setStyleSheet(f"""
             color: {TEXT_MUTED};
             font-size: 12px;
+            font-weight: 600;
             background: transparent;
         """)
         msg.setAlignment(Qt.AlignmentFlag.AlignCenter)

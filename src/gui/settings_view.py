@@ -94,14 +94,14 @@ def section_block(title: str) -> QWidget:
     w.setStyleSheet("background: transparent;")
     layout = QVBoxLayout(w)
     layout.setContentsMargins(0, 20, 0, 8)
-    layout.setSpacing(4)
+    layout.setSpacing(6)
 
     lbl = QLabel(title.upper())
     lbl.setStyleSheet(f"""
-        font-size: 9px;
+        font-size: 11px;
         font-weight: 600;
-        letter-spacing: 1.4px;
-        color: {TEXT_MUTED};
+        letter-spacing: 1.5px;
+        color: {TEXT_PRIMARY};
         background: transparent;
     """)
     layout.addWidget(lbl)

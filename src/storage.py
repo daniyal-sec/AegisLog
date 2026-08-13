@@ -205,6 +205,133 @@ class SecurityStorage:
                 ORDER BY id ASC
                 """
             ).fetchall()
+            return [dict(row) for row in rows]
+
+    def get_auth_events(self) -> list[dict]:
+        """Return all stored authentication events."""
+
+        with self._connect() as connection:
+
+            connection.row_factory = sqlite3.Row
+
+            rows = connection.execute(
+                """
+                SELECT
+                    id,
+                    timestamp,
+                    hostname,
+                    service,
+                    pid,
+                    status,
+                    username,
+                    source_ip,
+                    source_port,
+                    protocol,
+                    invalid_user,
+                    raw_log
+                FROM auth_events
+                ORDER BY id ASC
+                """
+            ).fetchall()
+
+            return [dict(row) for row in rows]
+
+    def get_failed_auth_events(self) -> list[dict]:
+        """Return stored authentication events with FAILED status."""
+
+        with self._connect() as connection:
+
+            connection.row_factory = sqlite3.Row
+
+            rows = connection.execute(
+                """
+                SELECT
+                    id,
+                    timestamp,
+                    hostname,
+                    service,
+                    pid,
+                    status,
+                    username,
+                    source_ip,
+                    source_port,
+                    protocol,
+                    invalid_user,
+                    raw_log
+                FROM auth_events
+                WHERE status = ?
+                ORDER BY id ASC
+                """,
+                ("FAILED",),
+            ).fetchall()
+
+            return [dict(row) for row in rows]
+
+    def get_auth_events_by_ip(
+        self,
+        source_ip: str,
+    ) -> list[dict]:
+        """Return authentication events from a specific source IP."""
+
+        with self._connect() as connection:
+
+            connection.row_factory = sqlite3.Row
+
+            rows = connection.execute(
+                """
+                SELECT
+                    id,
+                    timestamp,
+                    hostname,
+                    service,
+                    pid,
+                    status,
+                    username,
+                    source_ip,
+                    source_port,
+                    protocol,
+                    invalid_user,
+                    raw_log
+                FROM auth_events
+                WHERE source_ip = ?
+                ORDER BY id ASC
+                """,
+                (source_ip,),
+            ).fetchall()
+
+            return [dict(row) for row in rows]
+
+    def get_auth_events_by_username(
+        self,
+        username: str,
+    ) -> list[dict]:
+        """Return authentication events for a specific username."""
+
+        with self._connect() as connection:
+
+            connection.row_factory = sqlite3.Row
+
+            rows = connection.execute(
+                """
+                SELECT
+                    id,
+                    timestamp,
+                    hostname,
+                    service,
+                    pid,
+                    status,
+                    username,
+                    source_ip,
+                    source_port,
+                    protocol,
+                    invalid_user,
+                    raw_log
+                FROM auth_events
+                WHERE username = ?
+                ORDER BY id ASC
+                """,
+                (username,),
+            ).fetchall()
 
             return [dict(row) for row in rows]
 
@@ -239,3 +366,194 @@ class SecurityStorage:
             ).fetchall()
 
             return [dict(row) for row in rows]
+
+    def get_findings_by_severity(
+        self,
+        severity: str,
+    ) -> list[dict]:
+        """Return security findings with a specific severity."""
+
+        with self._connect() as connection:
+
+            connection.row_factory = sqlite3.Row
+
+            rows = connection.execute(
+                """
+                SELECT
+                    id,
+                    attack_type,
+                    severity,
+                    source_ip,
+                    target_user,
+                    attempts,
+                    service,
+                    first_seen,
+                    last_seen,
+                    recommendation,
+                    ip_classification,
+                    event_count,
+                    failed_attempts,
+                    successful_attempts,
+                    duration_seconds
+                FROM threat_findings
+                WHERE severity = ?
+                ORDER BY id ASC
+                """,
+                (severity,),
+            ).fetchall()
+
+            return [dict(row) for row in rows]
+
+    def get_findings_by_ip(
+        self,
+        source_ip: str,
+    ) -> list[dict]:
+        """Return security findings from a specific source IP."""
+
+        with self._connect() as connection:
+
+            connection.row_factory = sqlite3.Row
+
+            rows = connection.execute(
+                """
+                SELECT
+                    id,
+                    attack_type,
+                    severity,
+                    source_ip,
+                    target_user,
+                    attempts,
+                    service,
+                    first_seen,
+                    last_seen,
+                    recommendation,
+                    ip_classification,
+                    event_count,
+                    failed_attempts,
+                    successful_attempts,
+                    duration_seconds
+                FROM threat_findings
+                WHERE source_ip = ?
+                ORDER BY id ASC
+                """,
+                (source_ip,),
+            ).fetchall()
+
+            return [dict(row) for row in rows]
+
+    def get_findings_by_username(
+        self,
+        username: str,
+    ) -> list[dict]:
+        """Return security findings for a specific target user."""
+
+        with self._connect() as connection:
+
+            connection.row_factory = sqlite3.Row
+
+            rows = connection.execute(
+                """
+                SELECT
+                    id,
+                    attack_type,
+                    severity,
+                    source_ip,
+                    target_user,
+                    attempts,
+                    service,
+                    first_seen,
+                    last_seen,
+                    recommendation,
+                    ip_classification,
+                    event_count,
+                    failed_attempts,
+                    successful_attempts,
+                    duration_seconds
+                FROM threat_findings
+                WHERE target_user = ?
+                ORDER BY id ASC
+                """,
+                (username,),
+            ).fetchall()
+
+            return [dict(row) for row in rows]
+
+    
+
+    def get_auth_events_between(
+        self,
+        start_time,
+        end_time,
+    ) -> list[dict]:
+        """Return authentication events within a time range."""
+
+        with self._connect() as connection:
+
+            connection.row_factory = sqlite3.Row
+
+            rows = connection.execute(
+                """
+                SELECT
+                    id,
+                    timestamp,
+                    hostname,
+                    service,
+                    pid,
+                    status,
+                    username,
+                    source_ip,
+                    source_port,
+                    protocol,
+                    invalid_user,
+                    raw_log
+                    FROM auth_events
+                    WHERE timestamp >= ?
+                AND timestamp <= ?
+                ORDER BY timestamp ASC
+                """,
+                (
+                    start_time.isoformat(),
+                    end_time.isoformat(),
+                ),
+            ).fetchall()
+
+            return [dict(row) for row in rows]
+
+
+
+
+    def get_finding_by_id(self, finding_id: int):
+        """Return a single security finding by ID."""
+
+        with self._connect() as connection:
+
+            connection.row_factory = sqlite3.Row
+
+            row = connection.execute(
+                """
+                SELECT
+                    id,
+                    attack_type,
+                    severity,
+                    source_ip,
+                    target_user,
+                    attempts,
+                    service,
+                    first_seen,
+                    last_seen,
+                    recommendation,
+                    ip_classification,
+                    event_count,
+                    failed_attempts,
+                    successful_attempts,
+                    duration_seconds
+                FROM threat_findings
+                WHERE id = ?
+                """,
+                (finding_id,),
+            ).fetchone()
+
+            if row is None:
+                return None
+
+            return dict(row)

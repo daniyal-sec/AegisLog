@@ -193,6 +193,173 @@ class WindowsMonitorWorker(QObject):
         self._running = False
 
 
+class JournalMonitorWorker(QObject):
+    """
+    Thin orchestration layer that wraps the Linux journal monitoring logic.
+    Emits normalized dicts to the GUI via Qt signals.
+    """
+
+    event_detected   = Signal(dict)
+    finding_detected = Signal(dict)
+    monitor_error    = Signal(str)
+    status_message   = Signal(str)
+
+    def __init__(self, db_path: str, parent=None):
+        super().__init__(parent)
+        self.db_path = db_path
+        self._running = False
+        self._proc = None
+
+    @Slot()
+    def run(self):
+        self._running = True
+
+        try:
+            import json
+            import subprocess
+            from journal_monitor import _is_journalctl_available, build_syslog_line
+            from parser import parse_ssh_line
+            from live_detector import LiveDetector
+            from storage import SecurityStorage
+        except ImportError as exc:
+            self.monitor_error.emit(f"Import error: {exc}")
+            return
+        except Exception as exc:
+            self.monitor_error.emit(f"Startup error: {exc}")
+            return
+
+        if not _is_journalctl_available():
+            self.monitor_error.emit("journalctl is not available on this system.")
+            return
+
+        try:
+            storage = SecurityStorage(self.db_path)
+            detector = LiveDetector()
+        except Exception as exc:
+            self.monitor_error.emit(f"Storage/Detector init error: {exc}")
+            return
+
+        self.status_message.emit("Monitoring started. Source: systemd journal")
+
+        for unit_name in ("ssh", "sshd"):
+            if not self._running:
+                break
+
+            cmd = [
+                "journalctl",
+                "--follow",
+                "--output=json",
+                f"--unit={unit_name}",
+                "--since=now",
+            ]
+
+            try:
+                self._proc = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL,
+                    text=True,
+                )
+
+                got_event = False
+                for raw_line in self._proc.stdout:
+                    if not self._running:
+                        break
+
+                    raw_line = raw_line.strip()
+                    if not raw_line:
+                        continue
+
+                    try:
+                        entry = json.loads(raw_line)
+                    except json.JSONDecodeError:
+                        continue
+
+                    line = build_syslog_line(entry)
+                    if not line:
+                        continue
+
+                    auth_event = parse_ssh_line(line)
+                    if not auth_event:
+                        continue
+
+                    got_event = True
+
+                    try:
+                        storage.save_auth_event(auth_event)
+                    except Exception:
+                        pass
+
+                    self.event_detected.emit({
+                        "timestamp":   str(auth_event.timestamp),
+                        "status":      auth_event.status,
+                        "username":    auth_event.username,
+                        "source_ip":   auth_event.source_ip,
+                        "source_port": auth_event.source_port,
+                        "service":     auth_event.service,
+                        "event_id":    0,
+                        "record":      0,
+                    })
+
+                    try:
+                        findings = detector.add_event(auth_event)
+                    except Exception:
+                        findings = []
+
+                    for finding in findings:
+                        try:
+                            storage.save_finding(finding)
+                        except Exception:
+                            pass
+
+                        self.finding_detected.emit({
+                            "attack_type":         finding.attack_type,
+                            "severity":            finding.severity,
+                            "source_ip":           finding.source_ip,
+                            "target_user":         finding.target_user,
+                            "attempts":            finding.attempts,
+                            "service":             finding.service,
+                            "first_seen":          str(finding.first_seen),
+                            "last_seen":           str(finding.last_seen),
+                            "recommendation":      finding.recommendation,
+                            "ip_classification":   finding.ip_classification,
+                            "event_count":         finding.event_count,
+                            "failed_attempts":     finding.failed_attempts,
+                            "successful_attempts": finding.successful_attempts,
+                            "duration_seconds":    finding.duration_seconds,
+                        })
+
+                if self._proc:
+                    self._proc.terminate()
+                    self._proc.wait()
+                    self._proc = None
+
+                if got_event or not self._running:
+                    break
+
+            except Exception as exc:
+                self.monitor_error.emit(f"Error reading journal: {exc}")
+                break
+            finally:
+                if self._proc:
+                    try:
+                        self._proc.terminate()
+                    except Exception:
+                        pass
+                    self._proc = None
+
+        self.status_message.emit("Monitoring stopped.")
+
+    def stop(self):
+        """Signal the worker loop to exit cleanly."""
+        self._running = False
+        if self._proc:
+            try:
+                self._proc.terminate()
+            except Exception:
+                pass
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # LIVE EVENT ROW WIDGET (used inside alerts section)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -522,7 +689,10 @@ class MonitorView(QWidget):
             return
 
         self._thread = QThread(self)
-        self._worker = WindowsMonitorWorker(self.db_path)
+        if sys.platform == "win32":
+            self._worker = WindowsMonitorWorker(self.db_path)
+        else:
+            self._worker = JournalMonitorWorker(self.db_path)
         self._worker.moveToThread(self._thread)
 
         # Wire signals

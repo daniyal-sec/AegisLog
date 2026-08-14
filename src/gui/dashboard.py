@@ -22,6 +22,9 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QTimer, QThread, QObject, Signal, Slot
 from PySide6.QtGui import QFont, QColor
 
+import sys
+MONITOR_SOURCE_NAME = "Windows Security log" if sys.platform == "win32" else "systemd journal"
+
 from gui.styles import (
     BG_BASE, BG_SURFACE, BG_ELEVATED, BG_OVERLAY,
     BORDER_SUBTLE, BORDER_DEFAULT,
@@ -608,7 +611,7 @@ class DashboardView(QWidget):
 
         self._events_empty = EmptyStateWidget(
             "No authentication events recorded.",
-            "Start Live Monitoring to capture Windows Security log events.",
+            f"Start Live Monitoring to capture {MONITOR_SOURCE_NAME} events.",
         )
         self._events_empty.hide()
         self._cl.addWidget(self._events_empty)

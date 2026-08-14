@@ -32,6 +32,8 @@ from gui.styles import (
 MAX_EVENT_ROWS = 500
 POLL_INTERVAL  = 1.0   # seconds between Windows log polls
 
+MONITOR_SOURCE_NAME = "Windows Security Log" if sys.platform == "win32" else "systemd journal"
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # WORKER — runs on a QThread, never on the GUI thread
@@ -292,7 +294,7 @@ class MonitorView(QWidget):
         )
         ctrl_layout.addWidget(self._status_dot)
 
-        self._status_label = QLabel("Monitor Idle — Windows Security Log")
+        self._status_label = QLabel(f"Monitor Idle — {MONITOR_SOURCE_NAME}")
         self._status_label.setStyleSheet(
             f"color: {TEXT_SECONDARY}; font-size: 12px; background: transparent;"
         )
@@ -381,7 +383,7 @@ class MonitorView(QWidget):
 
         self._events_empty = self._empty_state(
             "Waiting for authentication events…",
-            "Start monitoring to capture Windows Security log events.",
+            f"Start monitoring to capture {MONITOR_SOURCE_NAME} events.",
         )
         self._events_empty.hide()
         left_layout.addWidget(self._events_empty)
@@ -559,7 +561,7 @@ class MonitorView(QWidget):
             self._status_label.setStyleSheet(
                 f"color: {STATUS_ACTIVE}; font-size: 12px; font-weight: 500; background: transparent;"
             )
-            self._status_label.setText("Monitoring Active — Windows Security Log")
+            self._status_label.setText(f"Monitoring Active — {MONITOR_SOURCE_NAME}")
         else:
             self._status_dot.setStyleSheet(
                 f"color: {STATUS_IDLE}; font-size: 12px; background: transparent;"
@@ -567,7 +569,7 @@ class MonitorView(QWidget):
             self._status_label.setStyleSheet(
                 f"color: {TEXT_SECONDARY}; font-size: 12px; background: transparent;"
             )
-            self._status_label.setText("Monitor Idle — Windows Security Log")
+            self._status_label.setText(f"Monitor Idle — {MONITOR_SOURCE_NAME}")
 
     # ── Slots receiving worker signals (always on main thread) ─────────────
 

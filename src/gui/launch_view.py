@@ -332,16 +332,12 @@ class StartupWorker(QObject):
 
         # 1. DB Check
         try:
-            if os.path.exists(self.db_path):
-                from storage import SecurityStorage
-                storage = SecurityStorage(self.db_path)
-                # If we can query the count, it is operational
-                storage.count_auth_events()
-                results["db_ok"] = True
-                results["db_msg"] = "OPERATIONAL"
-            else:
-                results["db_ok"] = False
-                results["db_msg"] = "UNAVAILABLE"
+            from storage import SecurityStorage
+            storage = SecurityStorage(self.db_path)
+            # If we can query the count, it is operational
+            storage.count_auth_events()
+            results["db_ok"] = True
+            results["db_msg"] = "OPERATIONAL"
         except Exception:
             results["db_ok"] = False
             results["db_msg"] = "UNAVAILABLE"

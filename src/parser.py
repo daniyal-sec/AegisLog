@@ -36,6 +36,20 @@ def parse_ssh_line(line):
         timestamp,
         "%b %d %H:%M:%S"
     )
+
+    # strptime with no year produces year=1900; replace with the correct year.
+    # Handle December/January boundary: a December log line arriving in January
+    # belongs to the previous year, and vice-versa.
+    _now = datetime.now()
+    _year = _now.year
+    if timestamp.month == 12 and _now.month == 1:
+        # Log is from December but we are now in January — last year
+        _year = _now.year - 1
+    elif timestamp.month == 1 and _now.month == 12:
+        # Log is from January but we are still in December — next year
+        _year = _now.year + 1
+    timestamp = timestamp.replace(year=_year)
+
     hostname = match.group("hostname")
     pid = int(match.group("pid"))
     message = match.group("message")

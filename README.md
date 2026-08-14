@@ -17,8 +17,8 @@
 ![Python](https://img.shields.io/badge/Python-3.11+-3776AB?style=for-the-badge&logo=python&logoColor=white)
 ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux-0F172A?style=for-the-badge)
 ![License](https://img.shields.io/badge/License-MIT-success?style=for-the-badge)
-![Status](https://img.shields.io/badge/Status-In%20Development-orange?style=for-the-badge)
-![Tests](https://img.shields.io/badge/Tests-66%20Passing-brightgreen?style=for-the-badge)
+![Status](https://img.shields.io/badge/Status-Release%20Ready-brightgreen?style=for-the-badge)
+![Tests](https://img.shields.io/badge/Tests-87%20Passing-brightgreen?style=for-the-badge)
 
 </p>
 
@@ -73,11 +73,13 @@ The project is built incrementally with modular Python components, automated tes
 - Windows Security Event Log monitoring
 - Windows Event IDs `4624` / `4625`
 - File-based & real-time analysis (Linux + Windows)
+- systemd journal (journald) monitoring — Kali Linux & all systemd distros
 - Structured `AuthEvent` data model
 - Source IP + username extraction & classification
 - Invalid-user identification
 - Unsupported-event filtering
 - File input validation & error handling
+- Timestamp year inference with Dec/Jan boundary handling
 
 </td><td valign="top">
 
@@ -95,11 +97,13 @@ The project is built incrementally with modular Python components, automated tes
 <tr><td valign="top">
 
 **Real-Time Monitoring**
-- Linux authentication log monitoring
+- Linux authentication log monitoring (file-based)
+- Linux systemd journal monitoring (journald)
 - Windows Security Event Log monitoring
 - New-event detection with startup filtering
 - Live security alerts
 - Real-time threat correlation
+- Graceful fallback between monitor sources
 
 </td><td valign="top">
 
@@ -107,9 +111,12 @@ The project is built incrementally with modular Python components, automated tes
 - Human-readable investigation reports
 - Threat severity summaries + recommendations
 - Synthetic and real-log test coverage
+- 87 automated tests (all passing)
 - Kali Linux systemd journal validation
 - Safe Windows brute-force detection tests
 - Cross-platform detection workflow
+- Timestamp year inference tests
+- Journal monitor pipeline tests
 
 </td></tr>
 </table>
@@ -133,7 +140,8 @@ The detection engine is shared between Linux and Windows authentication events.
 
 | Platform | Log Source | Analysis | Real-Time |
 |---|---|:---:|:---:|
-| 🐧 Linux | OpenSSH Authentication Logs | ✅ | ✅ |
+| 🐧 Linux | OpenSSH Authentication Logs (file) | ✅ | ✅ |
+| 🐧 Linux | systemd Journal (journald) | ✅ | ✅ |
 | 🪟 Windows | Security Event Log | ✅ | ✅ |
 
 **Windows Events monitored:**
@@ -156,26 +164,27 @@ Windows events are normalized into the same `AuthEvent` model used by Linux auth
             |                       |
           Linux                   Windows
             |                       |
-       Authentication          Security Event
-           Logs                     Log
-            |                       |
-        parser.py             windows_parser.py
-            |                       |
-            +-----------+-----------+
+   +-----------------+         Security Event
+   |                 |              Log
+Auth Log      systemd Journal        |
+   |                 |         windows_parser.py
+ parser.py    journal_monitor.py      |
+   |                 |               |
+   +-----------------+---------------+
                         |
                      AuthEvent
                         |
-                  LiveDetector
+                   LiveDetector
                         |
-                Detection Engine
+                 Detection Engine
                         |
-                  ThreatFinding
+                   ThreatFinding
                         |
-                  IP Enrichment
+                   IP Enrichment
                         |
-                 Security Alert
+                  Security Alert
                         |
-                 Report Generator
+                  Report Generator
                         |
               Investigation Report
 ```
@@ -250,40 +259,52 @@ Severity    : HIGH
 
 ---
 
-## 🖥️ Linux Real-Time Monitoring
+## 🐧 Linux Real-Time Monitoring
 
-```powershell
-python src/monitor.py
+AegisLog supports two Linux authentication monitor modes:
+
+### Option A — systemd Journal (Recommended for Kali Linux)
+
+On Kali Linux and most modern systemd-based distros, SSH events are stored in the systemd journal rather than a plain-text log file. Use the journal monitor:
+
+```bash
+python src/journal_monitor.py
 ```
 
-The monitor watches for new authentication events and feeds them through the live detection engine.
+The journal monitor reads SSH authentication events in real time from the systemd journal and feeds them through the same detection engine as all other AegisLog monitors.
 
 ```text
 ==================================================
-             AEGISLOG LIVE MONITOR
+     AEGISLOG LINUX JOURNAL MONITOR
+==================================================
+Source     : systemd journal (SSH)
+Status     : ACTIVE
+Press Ctrl+C to stop.
 ==================================================
 
-[Aug 09 16:10:01] FAILED   kali            192.168.19.1
-[Aug 09 16:10:05] FAILED   kali            192.168.19.1
-[Aug 09 16:10:09] FAILED   kali            192.168.19.1
-[Aug 09 16:10:13] FAILED   kali            192.168.19.1
-[Aug 09 16:10:17] FAILED   kali            192.168.19.1
+Waiting for new SSH events (unit=ssh.service)...
+
+[Aug 14 12:00:01] FAILED   root            192.168.1.10
+[Aug 14 12:00:05] FAILED   root            192.168.1.10
+...
 
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-AEGISLOG SECURITY ALERT
+          AEGISLOG SECURITY ALERT
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 Attack Type : Authentication Brute Force
 Severity    : HIGH
-Source IP   : 192.168.19.1
-Target User : kali
-Attempts    : 5
-First Seen  : Aug 09 16:10:01
-Last Seen   : Aug 09 16:10:17
-
-Recommendation
-Investigate source IP immediately.
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 ```
+
+> Requires `journalctl` in PATH (standard on all systemd distros). No additional pip packages needed.
+> Run as a user with access to the systemd journal (member of `systemd-journal` or `adm` group, or root).
+
+### Option B — Log File (Traditional)
+
+```bash
+python src/monitor.py
+```
+
+The file-based monitor watches a plain-text authentication log (e.g. `/var/log/auth.log`) for new events. Recommended for non-systemd environments or when access to the journal is unavailable.
 
 ---
 
@@ -474,28 +495,35 @@ AegisLog
 ├── assets/                    Banners, icons, logo
 ├── docs/                      ARCHITECTURE, ROADMAP, LOG_FORMAT, DETECTION_ENGINE, TESTING
 ├── reports/                   Generated investigation reports
-├── sample_logs/                linux_auth.log
-├── screenshots/                linux-real-log-detection.png
+├── sample_logs/               linux_auth.log
+├── screenshots/               linux-real-log-detection.png
 │
 ├── src/
+│   ├── app.py                 GUI entry point
 │   ├── main.py                CLI entry point (file analysis)
-│   ├── parser.py               Linux OpenSSH log parser
-│   ├── windows_parser.py       Windows Security Event Log parser
-│   ├── models.py                AuthEvent / ThreatFinding models
-│   ├── detector.py              Detection engine
-│   ├── live_detector.py         Shared real-time detection engine
-│   ├── monitor.py               Linux real-time monitor
-│   ├── windows_monitor.py       Windows real-time monitor
-│   ├── report_generator.py     Investigation report builder
-│   └── utils.py
+│   ├── parser.py              Linux OpenSSH log parser
+│   ├── windows_parser.py      Windows Security Event Log parser
+│   ├── journal_monitor.py     Linux systemd journal monitor (journald)
+│   ├── monitor.py             Linux file-based real-time monitor
+│   ├── windows_monitor.py     Windows real-time monitor
+│   ├── models.py              AuthEvent / ThreatFinding models
+│   ├── detector.py            Detection engine
+│   ├── live_detector.py       Shared real-time detection engine
+│   ├── report_generator.py    Investigation report builder
+│   ├── storage.py             SQLite persistence
+│   └── utils.py               IP classification utilities
+│   └── gui/                   PySide6 desktop application
 │
 ├── tests/
-│   └── test_windows_detection.py
+│   ├── test_journal_monitor.py
+│   ├── test_parser_year.py
+│   └── (+ 9 other test modules)
 │
 ├── .gitignore
 ├── README.md
 ├── LICENSE
-└── requirements.txt
+├── requirements.txt
+└── requirements-dev.txt
 ```
 
 ---
@@ -511,18 +539,20 @@ AegisLog
 
 ```text
 portalocker==4.1.0
-pywin32==312
-PySide6
+PySide6==6.11.1
+pywin32==312  (Windows only — automatically skipped on Linux)
 ```
+
+### Windows Installation
 
 **Clone the repository**
 
-```bash
+```powershell
 git clone https://github.com/daniyal-sec/AegisLog.git
 cd AegisLog
 ```
 
-**Create and activate a virtual environment** (Windows)
+**Create and activate a virtual environment**
 
 ```powershell
 python -m venv .venv
@@ -532,7 +562,61 @@ python -m venv .venv
 **Install dependencies**
 
 ```powershell
-python -m pip install -r requirements.txt
+pip install -r requirements.txt
+```
+
+**Launch AegisLog**
+
+```powershell
+python src/app.py
+```
+
+**Run tests**
+
+```powershell
+python -m pytest tests/ -v
+```
+
+### Linux Installation (Kali / Debian / Ubuntu)
+
+```bash
+git clone https://github.com/daniyal-sec/AegisLog.git
+cd AegisLog
+```
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+```
+
+```bash
+pip install -r requirements.txt
+```
+
+> `pywin32` is automatically skipped on Linux via the `sys_platform == "win32"` marker in `requirements.txt`.
+
+**Launch AegisLog**
+
+```bash
+python src/app.py
+```
+
+**Run tests**
+
+```bash
+python -m pytest tests/ -v
+```
+
+**Start journald monitor (Kali / systemd)**
+
+```bash
+python src/journal_monitor.py
+```
+
+**Start file-based monitor**
+
+```bash
+python src/monitor.py
 ```
 
 > `.venv/` is intentionally excluded from Git.
@@ -563,7 +647,7 @@ Generated reports and local testing logs are excluded from Git where appropriate
 | 6 | Investigation Integration & Stability — backend-integrated views, QThread fixes, 66 automated tests | ✅ Complete |
 | 7 | End-to-End GUI Integration — full manual verification across all views | ✅ Complete |
 | 8 | Visual Identity & GUI Aesthetics — dark SOC visual system, BrandMark, launch screen | ✅ Complete |
-| — | **Pre-Release Hardening** — dependency cleanup, expanded tests, advanced correlation, additional detection rules, configurable thresholds, JSON/HTML reporting, packaging, final security review | 🚧 In Progress |
+| — | **Pre-Release Hardening** — journald support, timestamp year fix, 87 tests, cross-platform validation, README | ✅ Complete |
 
 <details>
 <summary><b>Full phase-by-phase breakdown</b> (click to expand)</summary>
@@ -600,8 +684,8 @@ Dedicated Launch Screen · Native geometric AegisLog BrandMark · Wordmark hiera
 **Phase 8.2 — Database & Branding Refinement ✅**
 Resolved launch-screen database status issue · Shared absolute database path · Operational database verification · Refined geometric BrandMark · Consistent sidebar iconography · Launch/workspace branding alignment · 66/66 tests passing · No backend logic modified
 
-**Next — Pre-Release Hardening 🚧**
-Dependency and installation cleanup · Expanded GUI/integration tests · Advanced event correlation · Additional detection rules · Configurable detection thresholds · JSON/HTML reporting · Release packaging · Final security/privacy review · Public release preparation
+**Next — Pre-Release Hardening ✅**
+native Linux journald monitor · timestamp year inference · 87 automated tests · cross-platform validation (Windows + Kali) · updated README installation instructions
 
 </details>
 
@@ -613,13 +697,13 @@ AegisLog is designed to evolve beyond a simple authentication log parser into a 
 
 ## ⚠️ Project Status
 
-AegisLog has reached a **functional cross-platform authentication monitoring and investigation MVP**, currently supporting:
+AegisLog has reached a **stable, cross-platform authentication monitoring and investigation platform** currently supporting:
 
-Linux & Windows authentication analysis and real-time monitoring · Windows 4624/4625 processing · Shared cross-platform detection · IP classification · Real-time security alerts · SQLite-backed event and finding storage · Investigation workspace with correlated event timelines · Human-readable investigation reports · A full PySide6 desktop application (Dashboard, Live Monitor, Security Alerts, Investigation, Reports, Settings) with launch-time health checks, a dark SOC visual system, thread-safe background data loading, and **66 automated tests passing**.
+Linux & Windows authentication analysis and real-time monitoring · Linux systemd journal (journald) monitoring · Windows 4624/4625 processing · Shared cross-platform detection · IP classification · Real-time security alerts · SQLite-backed event and finding storage · Investigation workspace with correlated event timelines · Human-readable investigation reports · A full PySide6 desktop application (Dashboard, Live Monitor, Security Alerts, Investigation, Reports, Settings) with launch-time health checks, a dark SOC visual system, thread-safe background data loading, and **87 automated tests passing**.
 
-The project is now moving from core application development into **pre-release hardening and feature expansion** — advanced correlation, additional detection rules, configurable thresholds, additional report formats, dependency cleanup, expanded testing, packaging, and final release review.
+AegisLog is now considered **release-ready** as a focused Blue Team investigation and authentication monitoring tool for Windows and Linux environments.
 
-> AegisLog should currently be considered an **educational and investigation-support tool**, not a replacement for production SIEM, EDR, XDR, or enterprise security-monitoring platforms.
+> AegisLog should be considered an **educational and investigation-support tool**, not a replacement for production SIEM, EDR, XDR, or enterprise security-monitoring platforms.
 
 ---
 

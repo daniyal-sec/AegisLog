@@ -214,6 +214,29 @@ AuthEvent
 
 ---
 
+## 🔰 First-Time User Experience
+
+When a user launches AegisLog for the first time, a **"Welcome to AegisLog"** onboarding dialog is displayed before entering the main workspace.
+
+This onboarding introduces the core workflow in beginner-friendly language:
+- **Monitor**: Watch authentication events as they happen.
+- **Detect**: Identify suspicious activity such as repeated failed logins and brute-force attempts.
+- **Investigate**: Review detected incidents, timelines, affected accounts, and recommended actions.
+
+Depending on the operating system, the onboarding provides platform-specific context and next steps:
+
+**Windows**:
+- *AegisLog monitors the Windows Security Event Log.*
+- **Next step**: Open Live Monitor and select Start Monitoring to begin collecting Windows Security Log events.
+
+**Linux**:
+- *AegisLog monitors the systemd journal for authentication activity.*
+- **Next step**: Open Live Monitor and select Start Monitoring to begin collecting systemd journal events.
+
+The dialog includes a **"Don't show this again"** option. When selected, this preference is stored locally so the onboarding does not appear on every launch.
+
+---
+
 ## 🚀 Usage
 
 ### Analyze an Authentication Log
@@ -594,6 +617,15 @@ pip install -r requirements.txt
 ```
 
 > `pywin32` is automatically skipped on Linux via the `sys_platform == "win32"` marker in `requirements.txt`.
+
+**Note on Linux GUI Dependencies:**
+On minimal or headless Linux installations (including some Kali Linux environments), PySide6/Qt may require standard system GUI libraries that are not Python packages. For example, during Kali Linux validation, `libxcb-cursor0` was required for the PySide6 GUI to launch successfully:
+
+```bash
+sudo apt update
+sudo apt install -y libxcb-cursor0
+```
+Normal desktop Linux installations may already have the required Qt/X11 libraries installed.
 
 **Launch AegisLog**
 

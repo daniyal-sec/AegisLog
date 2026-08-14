@@ -6,6 +6,7 @@ events and detected security findings.
 """
 
 import sqlite3
+from contextlib import contextmanager
 from pathlib import Path
 
 from models import AuthEvent, ThreatFinding
@@ -24,12 +25,32 @@ class SecurityStorage:
 
         self._initialize_database()
 
+    @contextmanager
     def _connect(self):
-        """Create a new SQLite connection."""
+        """
+        Context manager that opens a SQLite connection, yields it, commits
+        or rolls back the transaction on exit, and always closes the
+        connection.
 
-        return sqlite3.connect(
-            self.database_path
-        )
+        Usage (unchanged at all call sites)::
+
+            with self._connect() as connection:
+                connection.execute(...)
+
+        The sqlite3 built-in context manager only manages transactions
+        (commit/rollback) and does NOT close the connection — leaving it
+        open until garbage-collected and causing ResourceWarning on Python
+        3.12+.  This wrapper adds the missing close() call.
+        """
+        connection = sqlite3.connect(self.database_path)
+        try:
+            yield connection
+            connection.commit()
+        except BaseException:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
 
     def _initialize_database(self):
         """Create the required database tables."""

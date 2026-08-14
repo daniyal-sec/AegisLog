@@ -45,7 +45,7 @@ import socket
 import subprocess
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
@@ -132,12 +132,15 @@ def build_syslog_line(entry):
     ):
         return None
 
-    # Parse the journal realtime timestamp (microseconds since epoch, UTC)
+    # Parse the journal realtime timestamp (microseconds since epoch, UTC).
+    # Use timezone-aware datetime.fromtimestamp() instead of the deprecated
+    # datetime.utcfromtimestamp() — the result is then formatted purely for
+    # the syslog-line month/day/time fields, so UTC semantics are preserved.
     ts_str = entry.get("__REALTIME_TIMESTAMP", "")
     try:
-        ts = datetime.utcfromtimestamp(int(ts_str) / 1_000_000)
+        ts = datetime.fromtimestamp(int(ts_str) / 1_000_000, tz=timezone.utc)
     except (ValueError, TypeError):
-        ts = datetime.utcnow()
+        ts = datetime.now(timezone.utc)
 
     month_abbr = _SYSLOG_MONTH_ABBR[ts.month]
     day_str = f"{ts.day:2d}"

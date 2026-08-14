@@ -31,24 +31,39 @@ def parse_ssh_line(line):
     if not match:
         return None
 
-    timestamp = match.group("timestamp")
-    timestamp = datetime.strptime(
-        timestamp,
-        "%b %d %H:%M:%S"
-    )
+    timestamp_raw = match.group("timestamp")
 
-    # strptime with no year produces year=1900; replace with the correct year.
-    # Handle December/January boundary: a December log line arriving in January
-    # belongs to the previous year, and vice-versa.
+    # Parse month, day, and time-of-day without calling strptime on a
+    # yearless string.  Python 3.15 will raise on yearless strptime calls;
+    # Python 3.13 already emits a DeprecationWarning.  We extract the
+    # month number from the raw string via a lookup table and then call
+    # strptime once with a full date (including year) to avoid the warning.
+    _MONTH_ABBR = {
+        "Jan": 1, "Feb": 2, "Mar": 3, "Apr": 4,
+        "May": 5, "Jun": 6, "Jul": 7, "Aug": 8,
+        "Sep": 9, "Oct": 10, "Nov": 11, "Dec": 12,
+    }
+
     _now = datetime.now()
     _year = _now.year
-    if timestamp.month == 12 and _now.month == 1:
+
+    # Determine the log month so we can apply the Dec/Jan boundary correction
+    # before constructing the final datetime.
+    _month_abbr = timestamp_raw.split()[0]  # e.g. "Aug"
+    _month_num = _MONTH_ABBR.get(_month_abbr, _now.month)
+
+    if _month_num == 12 and _now.month == 1:
         # Log is from December but we are now in January — last year
         _year = _now.year - 1
-    elif timestamp.month == 1 and _now.month == 12:
+    elif _month_num == 1 and _now.month == 12:
         # Log is from January but we are still in December — next year
         _year = _now.year + 1
-    timestamp = timestamp.replace(year=_year)
+
+    # Parse with an explicit year so strptime always receives a complete date.
+    timestamp = datetime.strptime(
+        f"{_year} {timestamp_raw}",
+        "%Y %b %d %H:%M:%S",
+    )
 
     hostname = match.group("hostname")
     pid = int(match.group("pid"))

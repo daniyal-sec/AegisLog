@@ -459,6 +459,10 @@ class MainWindow(QMainWindow):
         self._master_stack.setCurrentWidget(self._launch_view)
 
     def _enter_workspace(self):
+        from gui.onboarding_view import OnboardingDialog, should_show_onboarding
+        if should_show_onboarding(self.db_path):
+            dlg = OnboardingDialog(self.db_path, self)
+            dlg.exec()
         self._master_stack.setCurrentWidget(self._workspace)
 
     def _create_pages(self):
